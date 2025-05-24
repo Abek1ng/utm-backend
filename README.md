@@ -80,6 +80,8 @@ This UTM backend provides a complete API for managing:
 5. **Run migrations**
    ```bash
    alembic upgrade head
+   OR
+   alembic stamp head
    ```
 
 6. **Start the application**
