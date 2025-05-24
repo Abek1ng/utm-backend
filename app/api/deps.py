@@ -1,7 +1,7 @@
 from typing import Generator, Optional, List
 
-from fastapi import Depends, HTTPException, status, Security
-from fastapi.security import OAuth2PasswordBearer, SecurityScopes
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt, JWTError
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
@@ -11,32 +11,19 @@ from app.core.config import settings
 from app.db.session import get_db
 from app.models.user import User, UserRole
 from app.schemas.token import TokenPayload
-from app.crud import user as crud_user  # This imports the 'user' instance
+from app.crud import user as crud_user
 
-reusable_oauth2 = OAuth2PasswordBearer(
-    tokenUrl=f"{settings.API_V1_STR}/auth/login/access-token",
-    scopes={
-        UserRole.AUTHORITY_ADMIN: "Full system access.",
-        UserRole.ORGANIZATION_ADMIN: "Manage own organization resources.",
-        UserRole.ORGANIZATION_PILOT: "Manage own flights within organization.",
-        UserRole.SOLO_PILOT: "Manage own flights and drones.",
-    }
-)
+reusable_http_bearer = HTTPBearer(auto_error=True)
 
 def get_current_user(
-    security_scopes: SecurityScopes,
     db: Session = Depends(get_db),
-    token: str = Depends(reusable_oauth2),
+    credentials: HTTPAuthorizationCredentials = Depends(reusable_http_bearer),
 ) -> User:
-    if security_scopes.scopes:
-        authenticate_value = f'Bearer scope="{security_scopes.scope_str}"'
-    else:
-        authenticate_value = "Bearer"
-        
+    token = credentials.credentials
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
-        headers={"WWW-Authenticate": authenticate_value},
+        headers={"WWW-Authenticate": "Bearer"},
     )
     try:
         payload = jwt.decode(
@@ -47,12 +34,11 @@ def get_current_user(
         token_data = TokenPayload(**payload)
     except (JWTError, ValidationError):
         raise credentials_exception
-    
+
     user_id = token_data.sub
     if user_id is None:
         raise credentials_exception
-    
-    # Fix: Use crud_user.get() instead of crud_user.user.get()
+
     user = crud_user.get(db, id=int(user_id))
     if not user:
         raise credentials_exception
@@ -61,7 +47,7 @@ def get_current_user(
 
     return user
 
-# Role-specific dependencies
+# Role-specific dependencies (unchanged except for get_current_user signature)
 def get_current_active_user(current_user: User = Depends(get_current_user)) -> User:
     return current_user
 
@@ -126,7 +112,7 @@ def verify_user_in_organization(
     current_org_admin: User = Depends(get_current_organization_admin),
     db: Session = Depends(get_db)
 ) -> User:
-    user = crud_user.get(db, id=user_to_check_id)  # Fix: Use crud_user.get()
+    user = crud_user.get(db, id=user_to_check_id)
     if not user or user.organization_id != current_org_admin.organization_id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

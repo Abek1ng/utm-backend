@@ -9,7 +9,8 @@ from app import crud, models, schemas
 from app.api import deps
 from app.core import security
 from app.core.config import settings
-from app.models.user import UserRole # For setting roles
+from app.models.user import User, UserRole # For setting roles
+from app.schemas.user import UserRead  # Make sure this import matches your actual schema location
 
 router = APIRouter()
 
@@ -178,3 +179,10 @@ def login_access_token(
         user.id, expires_delta=access_token_expires
     )
     return {"access_token": access_token, "token_type": "bearer"}
+
+@router.get("/me", response_model=UserRead)
+async def read_current_user(
+    current_user: User = Depends(deps.get_current_user),
+) -> Any:
+    """Get current user information."""
+    return current_user
