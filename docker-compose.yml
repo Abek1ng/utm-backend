@@ -1,0 +1,48 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15
+    container_name: utm_postgres_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-utm_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-utm_password}
+      POSTGRES_DB: ${POSTGRES_DB:-utm_db}
+    ports:
+      - "5432:5432" # Expose PostgreSQL port to host (optional, for direct access)
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-utm_user} -d ${POSTGRES_DB:-utm_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: utm_fastapi_app
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - .:/app # Mount current directory to /app in container for live reload
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-utm_user}:${POSTGRES_PASSWORD:-utm_password}@db/${POSTGRES_DB:-utm_db}
+      - SECRET_KEY=${SECRET_KEY:-your_super_secret_key_please_change_this_in_production}
+      - ALGORITHM=${ALGORITHM:-HS256}
+      - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES:-60}
+      - API_V1_STR=${API_V1_STR:-/api/v1}
+      - PROJECT_NAME=${PROJECT_NAME:-UTM API}
+      - FIRST_SUPERUSER_EMAIL=${FIRST_SUPERUSER_EMAIL:-admin@example.com}
+      - FIRST_SUPERUSER_PASSWORD=${FIRST_SUPERUSER_PASSWORD:-changethis}
+      - FIRST_SUPERUSER_FULL_NAME=${FIRST_SUPERUSER_FULL_NAME:-Authority Admin}
+      - FIRST_SUPERUSER_IIN=${FIRST_SUPERUSER_IIN:-000000000000}
+      - WS_TELEMETRY_PATH=${WS_TELEMETRY_PATH:-/ws/telemetry}
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+volumes:
+  postgres_data:

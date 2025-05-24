@@ -1,0 +1,194 @@
+{
+  "test_suite": "UTM Database Comprehensive Test",
+  "timestamp": "2025-05-24T20:55:16.145386+00:00",
+  "database_url": "localhost:5432/utm_db",
+  "test_data_created": {
+    "users": [
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16
+    ],
+    "organizations": [
+      1,
+      2,
+      3
+    ],
+    "drones": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19
+    ],
+    "flight_plans": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16
+    ],
+    "waypoints": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31,
+      32,
+      33,
+      34,
+      35,
+      36,
+      37,
+      38,
+      39,
+      40,
+      41,
+      42
+    ],
+    "telemetry_logs": [],
+    "restricted_zones": [
+      1,
+      2,
+      3
+    ],
+    "user_drone_assignments": [
+      [
+        6,
+        1
+      ],
+      [
+        6,
+        2
+      ],
+      [
+        7,
+        1
+      ],
+      [
+        7,
+        2
+      ],
+      [
+        8,
+        4
+      ],
+      [
+        8,
+        5
+      ],
+      [
+        9,
+        4
+      ],
+      [
+        9,
+        5
+      ],
+      [
+        10,
+        7
+      ],
+      [
+        10,
+        8
+      ],
+      [
+        11,
+        7
+      ],
+      [
+        11,
+        8
+      ]
+    ]
+  },
+  "database_schema_info": {
+    "users": {
+      "total_records": 1
+    },
+    "organizations": {
+      "total_records": 0
+    },
+    "drones": {
+      "total_records": 0
+    },
+    "flight_plans": {
+      "total_records": 0
+    },
+    "waypoints": {
+      "total_records": 0
+    },
+    "telemetry_logs": {
+      "total_records": 0
+    },
+    "restricted_zones": {
+      "total_records": 0
+    },
+    "user_drone_assignments": {
+      "total_records": 0
+    }
+  }
+}
