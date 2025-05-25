@@ -1,7 +1,6 @@
 from typing import Generator, Optional, List
-
-from fastapi import Depends, HTTPException, status, Security
-from fastapi.security import OAuth2PasswordBearer, SecurityScopes
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt, JWTError
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
@@ -13,30 +12,19 @@ from app.models.user import User, UserRole
 from app.schemas.token import TokenPayload
 from app.crud import user as crud_user  # This imports the 'user' instance
 
-reusable_oauth2 = OAuth2PasswordBearer(
-    tokenUrl=f"{settings.API_V1_STR}/auth/login/access-token",
-    scopes={
-        UserRole.AUTHORITY_ADMIN: "Full system access.",
-        UserRole.ORGANIZATION_ADMIN: "Manage own organization resources.",
-        UserRole.ORGANIZATION_PILOT: "Manage own flights within organization.",
-        UserRole.SOLO_PILOT: "Manage own flights and drones.",
-    }
-)
+reusable_http_bearer = HTTPBearer(auto_error=True)
+
 
 def get_current_user(
-    security_scopes: SecurityScopes,
     db: Session = Depends(get_db),
-    token: str = Depends(reusable_oauth2),
+    credentials: HTTPAuthorizationCredentials = Depends(reusable_http_bearer),
 ) -> User:
-    if security_scopes.scopes:
-        authenticate_value = f'Bearer scope="{security_scopes.scope_str}"'
-    else:
-        authenticate_value = "Bearer"
+    token = credentials.credentials
         
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
-        headers={"WWW-Authenticate": authenticate_value},
+        headers={"WWW-Authenticate": "Bearer"},
     )
     try:
         payload = jwt.decode(
