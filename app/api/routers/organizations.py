@@ -1,13 +1,60 @@
-from typing import List, Any, Optional
-
+from app.crud.user_drone_assignment import user_drone_assignment
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Path
+from pydantic import BaseModel
+from typing import List, Optional, Any
+from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
-
-from app import crud, models, schemas
+from app import crud, schemas, models
 from app.api import deps
 from app.models.user import UserRole
 
 router = APIRouter()
+
+class PilotDroneResponse(BaseModel):
+    pilot: schemas.UserRead
+    assigned_drone: Optional[schemas.DroneRead] = None
+
+    class Config:
+        orm_mode = True
+
+@router.get(
+    "/me/user-drone",
+    response_model=List[PilotDroneResponse],
+    status_code=status.HTTP_200_OK,
+    summary="List pilots in your org + their assigned drones"
+)
+def list_my_org_user_drones(
+    db: Session = Depends(deps.get_db),
+    current_admin: models.User = Depends(deps.get_current_organization_admin),
+) -> Any:
+    """
+    For the Org-Admin in your token, return every Organization-Pilot
+    in that same org, along with their assigned drone (if any).
+    """
+    org_id = current_admin.organization_id  # guaranteed by Depends
+
+    # 1) grab all pilots in this org
+    pilots = crud.user.get_multi_users(
+        db,
+        organization_id=org_id,
+        role=UserRole.ORGANIZATION_PILOT,
+        skip=0,
+        limit=1000,
+    )
+
+    # 2) for each pilot, see if there's an assignment record
+    out: List[PilotDroneResponse] = []
+    for p in pilots:
+        assigns = user_drone_assignment.get_multi(db, user_id=p.id)
+        if assigns:
+            # take the first assignment
+            drone = crud.drone.get(db, id=assigns[0].drone_id)
+        else:
+            drone = None
+
+        out.append(PilotDroneResponse(pilot=p, assigned_drone=drone))
+
+    return out
 
 @router.get("/", response_model=List[schemas.OrganizationRead])
 def read_organizations(
@@ -241,31 +288,3 @@ def list_organization_drones(
         db, organization_id=organization_id, skip=skip, limit=limit
     )
     return drones
-
-def list_my_org_user_drones(
-    db: Session = Depends(deps.get_db),
-    current_admin: models.User = Depends(deps.get_current_organization_admin),
-) -> Any:
-    """
-    Using only your access token, return every Organization-Pilot
-    in *your* organization along with the drone (if any) each has assigned.
-    """
-    # `get_current_organization_admin` already enforces role & org_id presence
-    org_id = current_admin.organization_id  # type: ignore
-
-    # 1) Fetch all pilots in this org
-    pilots = crud.user.get_multi_users(
-        db,
-        organization_id=org_id,
-        role=UserRole.ORGANIZATION_PILOT,
-        skip=0,
-        limit=1000,  # adjust paging as desired
-    )
-
-    # 2) For each pilot, look up their assigned drone (if any)
-    out: List[PilotDroneResponse] = []
-    for p in pilots:
-        assigned = crud.drone.get_drone_by_pilot(db, pilot_id=p.id)
-        out.append(PilotDroneResponse(pilot=p, assigned_drone=assigned))
-
-    return out
