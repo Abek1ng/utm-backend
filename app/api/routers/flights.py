@@ -81,8 +81,12 @@ def list_organization_flight_plans(
     return flight_plans
 
 
-@router.get("/admin/all", response_model=List[schemas.FlightPlanRead])
-def list_all_flight_plans_admin(
+@router.get(
+    "/admin/all",
+    response_model=List[schemas.FlightPlanReadWithWaypoints],  # ← note the changed model
+    status_code=status.HTTP_200_OK
+)
+def list_all_flight_plans_admin_with_waypoints(
     db: Session = Depends(deps.get_db),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=200),
@@ -92,8 +96,10 @@ def list_all_flight_plans_admin(
     current_authority_admin: models.User = Depends(deps.get_current_authority_admin),
 ) -> Any:
     """
-    List ALL flight plans in the system (Authority Admin Only).
+    List ALL flight plans in the system (Authority Admin Only),
+    including their waypoints (just like /my does).
     """
+    # Fetch all FlightPlan ORM objects
     flight_plans = crud.flight_plan.get_all_flight_plans_admin(
         db,
         skip=skip,
@@ -102,8 +108,12 @@ def list_all_flight_plans_admin(
         organization_id=organization_id_filter,
         user_id=user_id_filter
     )
-    return flight_plans
 
+    # Eager-load each plan’s waypoints so Pydantic can serialize them
+    for fp in flight_plans:
+        db.refresh(fp, attribute_names=["waypoints"])
+
+    return flight_plans
 
 @router.get("/{flight_plan_id}", response_model=schemas.FlightPlanReadWithWaypoints)
 def read_flight_plan_by_id(
