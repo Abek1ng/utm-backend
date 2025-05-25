@@ -200,89 +200,64 @@ from sqlalchemy import pool
 
 from alembic import context
 
-# this is the Alembic Config object, which provides
-# access to the values within the .ini file in use.
-config = context.config
-
-# Interpret the config file for Python logging.
-# This line sets up loggers basically.
-if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
-
-# Load .env file from the project root
-# Assuming env.py is in alembic/ and .env is in the parent directory
+# Load environment variables
 dotenv_path = os.path.join(os.path.dirname(__file__), '..', '.env')
 load_dotenv(dotenv_path)
 
-# Add your model's MetaData object here
-# for 'autogenerate' support
-# from myapp import mymodel
-# target_metadata = mymodel.Base.metadata
-# Import Base from your models
-from app.db.base_class import Base  # Adjust if your Base is elsewhere
-from app.models import * # Import all models to register them with Base.metadata
+config = context.config
+
+if config.config_file_name is not None:
+    fileConfig(config.config_file_name)
+
+# Import Base and models for autogenerate support
+from app.db.base_class import Base
+
+# Import all models individually to avoid circular imports
+from app.models.user import User
+from app.models.organization import Organization
+from app.models.drone import Drone
+from app.models.user_drone_assignment import UserDroneAssignment
+from app.models.flight_plan import FlightPlan
+from app.models.waypoint import Waypoint
+from app.models.telemetry_log import TelemetryLog
+from app.models.restricted_zone import RestrictedZone
+
 target_metadata = Base.metadata
-
-# other values from the config, defined by the needs of env.py,
-# can be acquired:
-# my_important_option = config.get_main_option("my_important_option")
-# ... etc.
-
 
 def get_url():
     return os.getenv("DATABASE_URL")
 
-
 def run_migrations_offline() -> None:
-    """Run migrations in 'offline' mode.
-
-    This configures the context with just a URL
-    and not an Engine, though an Engine is acceptable
-    here as well.  By skipping the Engine creation
-    we don't even need a DBAPI to be available.
-
-    Calls to context.execute() here emit the given string to the
-    script output.
-
-    """
-    url = get_url() # config.get_main_option("sqlalchemy.url")
+    url = get_url()
     context.configure(
         url=url,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
-        compare_type=True, # Add this for better enum and type comparison
+        compare_type=True,
     )
 
     with context.begin_transaction():
         context.run_migrations()
 
-
 def run_migrations_online() -> None:
-    """Run migrations in 'online' mode.
-
-    In this scenario we need to create an Engine
-    and associate a connection with the context.
-
-    """
     configuration = config.get_section(config.config_ini_section)
     configuration["sqlalchemy.url"] = get_url()
     connectable = engine_from_config(
-        configuration, # config.get_section(config.config_ini_section, {}),
+        configuration,
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )
 
     with connectable.connect() as connection:
         context.configure(
-            connection=connection, 
+            connection=connection,
             target_metadata=target_metadata,
-            compare_type=True, # Add this for better enum and type comparison
+            compare_type=True,
         )
 
         with context.begin_transaction():
             context.run_migrations()
-
 
 if context.is_offline_mode():
     run_migrations_offline()
@@ -293,7 +268,305 @@ else:
 # alembic/script.py.mako
 
 ```mako
+"""${message}
 
+Revision ID: ${up_revision}
+Revises: ${down_revision | comma,n}
+Create Date: ${create_date}
+
+"""
+from alembic import op
+import sqlalchemy as sa
+${imports if imports else ""}
+
+# revision identifiers, used by Alembic.
+revision = ${repr(up_revision)}
+down_revision = ${repr(down_revision)}
+branch_labels = ${repr(branch_labels)}
+depends_on = ${repr(depends_on)}
+
+
+def upgrade() -> None:
+    ${upgrades if upgrades else "pass"}
+
+
+def downgrade() -> None:
+    ${downgrades if downgrades else "pass"}
+
+```
+
+# alembic/versions/001_initial_migration.py
+
+```py
+"""Initial migration
+
+Revision ID: 001
+Revises: 
+Create Date: 2024-01-01 00:00:00.000000
+
+"""
+from alembic import op
+import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
+
+# revision identifiers, used by Alembic.
+revision = '001'
+down_revision = None
+branch_labels = None
+depends_on = None
+
+
+def upgrade() -> None:
+    # Create organizations table FIRST (no dependencies)
+    op.create_table('organizations',
+        sa.Column('id', sa.Integer(), nullable=False),
+        sa.Column('name', sa.String(length=255), nullable=False),
+        sa.Column('bin', sa.String(length=12), nullable=False),
+        sa.Column('company_address', sa.String(length=500), nullable=False),
+        sa.Column('city', sa.String(length=100), nullable=False),
+        sa.Column('admin_id', sa.Integer(), nullable=True),
+        sa.Column('is_active', sa.Boolean(), nullable=False, server_default='true'),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()')),
+        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()')),
+        sa.Column('deleted_at', sa.DateTime(timezone=True), nullable=True),
+        sa.PrimaryKeyConstraint('id'),
+        sa.UniqueConstraint('name'),
+        sa.UniqueConstraint('bin')
+    )
+    op.create_index(op.f('ix_organizations_deleted_at'), 'organizations', ['deleted_at'], unique=False)
+    op.create_index(op.f('ix_organizations_id'), 'organizations', ['id'], unique=False)
+    op.create_index(op.f('ix_organizations_name'), 'organizations', ['name'], unique=True)
+
+    # Create users table SECOND (references organizations)
+    op.create_table('users',
+        sa.Column('id', sa.Integer(), nullable=False),
+        sa.Column('full_name', sa.String(length=100), nullable=False),
+        sa.Column('email', sa.String(length=255), nullable=False),
+        sa.Column('phone_number', sa.String(length=20), nullable=True),
+        sa.Column('iin', sa.String(length=12), nullable=True),
+        sa.Column('hashed_password', sa.String(length=255), nullable=False),
+        sa.Column('role', sa.Enum('AUTHORITY_ADMIN', 'ORGANIZATION_ADMIN', 'ORGANIZATION_PILOT', 'SOLO_PILOT', name='userrole'), nullable=False),
+        sa.Column('organization_id', sa.Integer(), nullable=True),
+        sa.Column('is_active', sa.Boolean(), nullable=False, server_default='true'),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()')),
+        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()')),
+        sa.Column('deleted_at', sa.DateTime(timezone=True), nullable=True),
+        sa.ForeignKeyConstraint(['organization_id'], ['organizations.id'], name='fk_user_organization_id'),
+        sa.PrimaryKeyConstraint('id'),
+        sa.UniqueConstraint('email'),
+        sa.UniqueConstraint('phone_number'),
+        sa.UniqueConstraint('iin')
+    )
+    op.create_index(op.f('ix_users_deleted_at'), 'users', ['deleted_at'], unique=False)
+    op.create_index(op.f('ix_users_email'), 'users', ['email'], unique=True)
+    op.create_index(op.f('ix_users_iin'), 'users', ['iin'], unique=True)
+    op.create_index(op.f('ix_users_id'), 'users', ['id'], unique=False)
+    op.create_index(op.f('ix_users_phone_number'), 'users', ['phone_number'], unique=True)
+
+    # Now add the admin_id foreign key to organizations (circular reference)
+    op.create_foreign_key('fk_organization_admin_id', 'organizations', 'users', ['admin_id'], ['id'])
+
+    # Create drones table
+    op.create_table('drones',
+        sa.Column('id', sa.Integer(), nullable=False),
+        sa.Column('brand', sa.String(length=100), nullable=False),
+        sa.Column('model', sa.String(length=100), nullable=False),
+        sa.Column('serial_number', sa.String(length=100), nullable=False),
+        sa.Column('owner_type', sa.Enum('ORGANIZATION', 'SOLO_PILOT', name='droneownertype'), nullable=False),
+        sa.Column('organization_id', sa.Integer(), nullable=True),
+        sa.Column('solo_owner_user_id', sa.Integer(), nullable=True),
+        sa.Column('current_status', sa.Enum('IDLE', 'ACTIVE', 'MAINTENANCE', 'UNKNOWN', name='dronestatus'), nullable=False, server_default='IDLE'),
+        sa.Column('last_telemetry_id', sa.BigInteger(), nullable=True),
+        sa.Column('last_seen_at', sa.DateTime(timezone=True), nullable=True),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()')),
+        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()')),
+        sa.Column('deleted_at', sa.DateTime(timezone=True), nullable=True),
+        sa.ForeignKeyConstraint(['organization_id'], ['organizations.id'], name='fk_drone_organization_id'),
+        sa.ForeignKeyConstraint(['solo_owner_user_id'], ['users.id'], name='fk_drone_solo_owner_user_id'),
+        sa.PrimaryKeyConstraint('id'),
+        sa.UniqueConstraint('serial_number')
+    )
+    op.create_index(op.f('ix_drones_deleted_at'), 'drones', ['deleted_at'], unique=False)
+    op.create_index(op.f('ix_drones_id'), 'drones', ['id'], unique=False)
+    op.create_index(op.f('ix_drones_serial_number'), 'drones', ['serial_number'], unique=True)
+
+
+def downgrade() -> None:
+    op.drop_table('drones')
+    op.drop_table('users')
+    op.drop_table('organizations')
+
+```
+
+# alembic/versions/b621379b2521_add_remaining_tables.py
+
+```py
+"""Add remaining tables
+
+Revision ID: b621379b2521
+Revises: 001
+Create Date: 2025-05-25 01:38:47.317934
+
+"""
+from alembic import op
+import sqlalchemy as sa
+
+
+# revision identifiers, used by Alembic.
+revision = 'b621379b2521'
+down_revision = '001'
+branch_labels = None
+depends_on = None
+
+
+def upgrade() -> None:
+    # Create user_drone_assignments table
+    op.create_table('user_drone_assignments',
+        sa.Column('user_id', sa.Integer(), nullable=False),
+        sa.Column('drone_id', sa.Integer(), nullable=False),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()')),
+        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()')),
+        sa.Column('deleted_at', sa.DateTime(timezone=True), nullable=True),
+        sa.ForeignKeyConstraint(['drone_id'], ['drones.id'], name='fk_user_drone_assignment_drone_id', ondelete='CASCADE'),
+        sa.ForeignKeyConstraint(['user_id'], ['users.id'], name='fk_user_drone_assignment_user_id', ondelete='CASCADE'),
+        sa.PrimaryKeyConstraint('user_id', 'drone_id', name='pk_user_drone_assignment')
+    )
+
+    # Create flight_plans table
+    op.create_table('flight_plans',
+        sa.Column('id', sa.Integer(), nullable=False),
+        sa.Column('user_id', sa.Integer(), nullable=False),
+        sa.Column('drone_id', sa.Integer(), nullable=False),
+        sa.Column('organization_id', sa.Integer(), nullable=True),
+        sa.Column('planned_departure_time', sa.DateTime(timezone=True), nullable=False),
+        sa.Column('planned_arrival_time', sa.DateTime(timezone=True), nullable=False),
+        sa.Column('actual_departure_time', sa.DateTime(timezone=True), nullable=True),
+        sa.Column('actual_arrival_time', sa.DateTime(timezone=True), nullable=True),
+        sa.Column('status', sa.Enum('PENDING_ORG_APPROVAL', 'PENDING_AUTHORITY_APPROVAL', 'APPROVED', 'REJECTED_BY_ORG', 'REJECTED_BY_AUTHORITY', 'ACTIVE', 'COMPLETED', 'CANCELLED_BY_PILOT', 'CANCELLED_BY_ADMIN', name='flightplanstatus'), nullable=False),
+        sa.Column('notes', sa.Text(), nullable=True),
+        sa.Column('rejection_reason', sa.String(length=500), nullable=True),
+        sa.Column('approved_by_organization_admin_id', sa.Integer(), nullable=True),
+        sa.Column('approved_by_authority_admin_id', sa.Integer(), nullable=True),
+        sa.Column('approved_at', sa.DateTime(timezone=True), nullable=True),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()')),
+        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()')),
+        sa.Column('deleted_at', sa.DateTime(timezone=True), nullable=True),
+        sa.ForeignKeyConstraint(['approved_by_authority_admin_id'], ['users.id'], name='fk_flight_plan_auth_admin_id'),
+        sa.ForeignKeyConstraint(['approved_by_organization_admin_id'], ['users.id'], name='fk_flight_plan_org_admin_id'),
+        sa.ForeignKeyConstraint(['drone_id'], ['drones.id'], name='fk_flight_plan_drone_id'),
+        sa.ForeignKeyConstraint(['organization_id'], ['organizations.id'], name='fk_flight_plan_organization_id'),
+        sa.ForeignKeyConstraint(['user_id'], ['users.id'], name='fk_flight_plan_user_id'),
+        sa.PrimaryKeyConstraint('id')
+    )
+    op.create_index(op.f('ix_flight_plans_deleted_at'), 'flight_plans', ['deleted_at'], unique=False)
+    op.create_index(op.f('ix_flight_plans_id'), 'flight_plans', ['id'], unique=False)
+    op.create_index(op.f('ix_flight_plans_status'), 'flight_plans', ['status'], unique=False)
+
+    # Create waypoints table
+    op.create_table('waypoints',
+        sa.Column('id', sa.Integer(), nullable=False),
+        sa.Column('flight_plan_id', sa.Integer(), nullable=False),
+        sa.Column('latitude', sa.Float(), nullable=False),
+        sa.Column('longitude', sa.Float(), nullable=False),
+        sa.Column('altitude_m', sa.Float(), nullable=False),
+        sa.Column('sequence_order', sa.Integer(), nullable=False),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()')),
+        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()')),
+        sa.Column('deleted_at', sa.DateTime(timezone=True), nullable=True),
+        sa.ForeignKeyConstraint(['flight_plan_id'], ['flight_plans.id'], name='fk_waypoint_flight_plan_id', ondelete='CASCADE'),
+        sa.PrimaryKeyConstraint('id')
+    )
+    op.create_index('ix_waypoint_flight_plan_id_sequence_order', 'waypoints', ['flight_plan_id', 'sequence_order'], unique=True)
+    op.create_index(op.f('ix_waypoints_flight_plan_id'), 'waypoints', ['flight_plan_id'], unique=False)
+    op.create_index(op.f('ix_waypoints_id'), 'waypoints', ['id'], unique=False)
+
+    # Create telemetry_logs table
+    op.create_table('telemetry_logs',
+    sa.Column('id', sa.BigInteger(), nullable=False),
+    sa.Column('flight_plan_id', sa.Integer(), nullable=True),
+    sa.Column('drone_id', sa.Integer(), nullable=False),
+    sa.Column('timestamp', sa.DateTime(timezone=True), nullable=False),
+    sa.Column('latitude', sa.Float(), nullable=False),
+    sa.Column('longitude', sa.Float(), nullable=False),
+    sa.Column('altitude_m', sa.Float(), nullable=False),
+    sa.Column('speed_mps', sa.Float(), nullable=True),
+    sa.Column('heading_degrees', sa.Float(), nullable=True),
+    sa.Column('status_message', sa.String(length=255), nullable=True),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()')),
+    sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()')),
+    sa.Column('deleted_at', sa.DateTime(timezone=True), nullable=True),  # ADD THIS LINE
+    sa.ForeignKeyConstraint(['drone_id'], ['drones.id'], name='fk_telemetry_log_drone_id', ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['flight_plan_id'], ['flight_plans.id'], name='fk_telemetry_log_flight_plan_id', ondelete='SET NULL'),
+    sa.PrimaryKeyConstraint('id')
+)
+    op.create_index(op.f('ix_telemetry_logs_drone_id'), 'telemetry_logs', ['drone_id'], unique=False)
+    op.create_index(op.f('ix_telemetry_logs_flight_plan_id'), 'telemetry_logs', ['flight_plan_id'], unique=False)
+    op.create_index(op.f('ix_telemetry_logs_id'), 'telemetry_logs', ['id'], unique=False)
+    op.create_index(op.f('ix_telemetry_logs_timestamp'), 'telemetry_logs', ['timestamp'], unique=False)
+
+    # Create restricted_zones table
+    op.create_table('restricted_zones',
+        sa.Column('id', sa.Integer(), nullable=False),
+        sa.Column('name', sa.String(length=255), nullable=False),
+        sa.Column('description', sa.Text(), nullable=True),
+        sa.Column('geometry_type', sa.Enum('CIRCLE', 'POLYGON', name='nfzgeometrytype'), nullable=False),
+        sa.Column('definition_json', sa.JSON(), nullable=False),
+        sa.Column('min_altitude_m', sa.Float(), nullable=True),
+        sa.Column('max_altitude_m', sa.Float(), nullable=True),
+        sa.Column('is_active', sa.Boolean(), nullable=False, server_default='true'),
+        sa.Column('created_by_authority_id', sa.Integer(), nullable=False),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()')),
+        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()')),
+        sa.Column('deleted_at', sa.DateTime(timezone=True), nullable=True),
+        sa.ForeignKeyConstraint(['created_by_authority_id'], ['users.id'], name='fk_restricted_zone_creator_id'),
+        sa.PrimaryKeyConstraint('id')
+    )
+    op.create_index(op.f('ix_restricted_zones_deleted_at'), 'restricted_zones', ['deleted_at'], unique=False)
+    op.create_index(op.f('ix_restricted_zones_id'), 'restricted_zones', ['id'], unique=False)
+    op.create_index(op.f('ix_restricted_zones_name'), 'restricted_zones', ['name'], unique=False)
+
+    # Add the foreign key for drones.last_telemetry_id (circular reference)
+    op.create_foreign_key('fk_drone_last_telemetry_id', 'drones', 'telemetry_logs', ['last_telemetry_id'], ['id'])
+
+
+def downgrade() -> None:
+    op.drop_table('restricted_zones')
+    op.drop_table('telemetry_logs')
+    op.drop_table('waypoints')
+    op.drop_table('flight_plans')
+    op.drop_table('user_drone_assignments')
+```
+
+# alembic/versions/d93e49272d92_add_deleted_at_to_telemetry_logs.py
+
+```py
+
+"""Add deleted_at to telemetry_logs
+
+Revision ID: [new_revision_id]
+Revises: b621379b2521
+Create Date: [current_date]
+
+"""
+from alembic import op
+import sqlalchemy as sa
+
+# revision identifiers, used by Alembic.
+revision = 'd93e49272d92'
+down_revision = 'b621379b2521'
+branch_labels = None
+depends_on = None
+
+
+def upgrade() -> None:
+    # Add deleted_at column to telemetry_logs if it doesn't exist
+    op.add_column('telemetry_logs', sa.Column('deleted_at', sa.DateTime(timezone=True), nullable=True))
+    op.create_index(op.f('ix_telemetry_logs_deleted_at'), 'telemetry_logs', ['deleted_at'], unique=False)
+
+
+def downgrade() -> None:
+    op.drop_index(op.f('ix_telemetry_logs_deleted_at'), table_name='telemetry_logs')
+    op.drop_column('telemetry_logs', 'deleted_at')
 ```
 
 # app/__init__.py
@@ -324,11 +597,11 @@ from app.core.config import settings
 from app.db.session import get_db
 from app.models.user import User, UserRole
 from app.schemas.token import TokenPayload
-from app.crud import user as crud_user # Renamed to avoid conflict
+from app.crud import user as crud_user  # This imports the 'user' instance
 
 reusable_oauth2 = OAuth2PasswordBearer(
     tokenUrl=f"{settings.API_V1_STR}/auth/login/access-token",
-    scopes={ # Define scopes based on UserRole for more granular control if needed
+    scopes={
         UserRole.AUTHORITY_ADMIN: "Full system access.",
         UserRole.ORGANIZATION_ADMIN: "Manage own organization resources.",
         UserRole.ORGANIZATION_PILOT: "Manage own flights within organization.",
@@ -337,7 +610,7 @@ reusable_oauth2 = OAuth2PasswordBearer(
 )
 
 def get_current_user(
-    security_scopes: SecurityScopes, # FastAPI injects this
+    security_scopes: SecurityScopes,
     db: Session = Depends(get_db),
     token: str = Depends(reusable_oauth2),
 ) -> User:
@@ -365,27 +638,17 @@ def get_current_user(
     if user_id is None:
         raise credentials_exception
     
-    user = crud_user.user.get(db, id=int(user_id)) # crud_user.user to access the instance
+    # Fix: Use crud_user.get() instead of crud_user.user.get()
+    user = crud_user.get(db, id=int(user_id))
     if not user:
         raise credentials_exception
-    if not crud_user.user.is_active(user):
+    if not crud_user.is_active(user):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Inactive user")
 
-    # Scope checking (optional, can be more granular)
-    # For simplicity, we'll check roles directly in role-specific dependencies
-    # if security_scopes.scopes:
-    #     user_roles_as_scopes = [user.role.value] # User has one role
-    #     if not any(s in user_roles_as_scopes for s in security_scopes.scopes):
-    #         raise HTTPException(
-    #             status_code=status.HTTP_403_FORBIDDEN,
-    #             detail="Not enough permissions",
-    #             headers={"WWW-Authenticate": authenticate_value},
-    #         )
     return user
 
 # Role-specific dependencies
 def get_current_active_user(current_user: User = Depends(get_current_user)) -> User:
-    # This is a base for authenticated users, already checks active status in get_current_user
     return current_user
 
 def get_current_authority_admin(current_user: User = Depends(get_current_user)) -> User:
@@ -394,7 +657,7 @@ def get_current_authority_admin(current_user: User = Depends(get_current_user)) 
             status_code=status.HTTP_403_FORBIDDEN,
             detail="The user doesn't have enough privileges (Authority Admin required).",
         )
-    if not current_user.is_active: # Redundant if get_current_user checks, but good for clarity
+    if not current_user.is_active:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Inactive user")
     return current_user
 
@@ -434,12 +697,9 @@ def get_current_pilot(current_user: User = Depends(get_current_user)) -> User:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Inactive user")
     return current_user
 
-
-# Permissions for specific resources
-# Example: Check if Org Admin owns the organization for a resource
 def verify_organization_access(
     organization_id_in_path: int,
-    current_user: User = Depends(get_current_organization_admin) # Ensures user is Org Admin
+    current_user: User = Depends(get_current_organization_admin)
 ) -> None:
     if current_user.organization_id != organization_id_in_path:
         raise HTTPException(
@@ -448,19 +708,17 @@ def verify_organization_access(
         )
 
 def verify_user_in_organization(
-    user_to_check_id: int, # User ID from path or body
+    user_to_check_id: int,
     current_org_admin: User = Depends(get_current_organization_admin),
     db: Session = Depends(get_db)
 ) -> User:
-    user = crud_user.user.get(db, id=user_to_check_id)
+    user = crud_user.get(db, id=user_to_check_id)  # Fix: Use crud_user.get()
     if not user or user.organization_id != current_org_admin.organization_id:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, # Or 403
+            status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found or does not belong to this organization."
         )
     return user
-
-# Add more specific permission checks as needed
 ```
 
 # app/api/routers/__init__.py
@@ -1857,7 +2115,9 @@ def delete_user(
 
 ```py
 from typing import List, Any, Optional
-
+import asyncio
+from app.crud import telemetry_log as crud_telemetry_log
+from app.models.drone import DroneOwnerType # For Remote ID
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 
@@ -1952,8 +2212,7 @@ async def get_active_flights_remote_id(
     return remote_id_broadcasts
 
 # Need to import asyncio for the weather endpoint
-import asyncio
-from app.models.drone import DroneOwnerType # For Remote ID
+
 ```
 
 # app/api/v1.py
@@ -2003,36 +2262,33 @@ class Settings(BaseSettings):
     POSTGRES_USER: str
     POSTGRES_PASSWORD: str
     POSTGRES_DB: str
-    DATABASE_URL: Optional[str] = None # Will be constructed
+    DATABASE_URL: str  # This should come directly from .env
 
     # JWT
     SECRET_KEY: str
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
 
-    # First Superuser (Authority Admin)
+    # First Superuser
     FIRST_SUPERUSER_EMAIL: str
     FIRST_SUPERUSER_PASSWORD: str
     FIRST_SUPERUSER_FULL_NAME: str
     FIRST_SUPERUSER_IIN: str
 
-    BACKEND_CORS_ORIGINS: List[Union[AnyHttpUrl, str]] = ["http://localhost:3000", "http://localhost:5173", "http://localhost:8080"]
+    BACKEND_CORS_ORIGINS: List[Union[AnyHttpUrl, str]] = [
+        "http://localhost:3000", 
+        "http://localhost:5173", 
+        "http://localhost:8080"
+    ]
+    
     # WebSocket
     WS_TELEMETRY_PATH: str = "/ws/telemetry"
 
     class Config:
         env_file = ".env"
         env_file_encoding = 'utf-8'
-        # This helps construct DATABASE_URL if not explicitly set
-        # but it's better to set it directly in .env or docker-compose
-        # For now, we assume DATABASE_URL is set directly.
 
 settings = Settings()
-
-# Construct DATABASE_URL if not set directly (useful if individual components are in .env)
-if not settings.DATABASE_URL:
-    settings.DATABASE_URL = f"postgresql://{settings.POSTGRES_USER}:{settings.POSTGRES_PASSWORD}@{settings.POSTGRES_SERVER}/{settings.POSTGRES_DB}"
-
 ```
 
 # app/core/security.py
@@ -2086,12 +2342,15 @@ from .crud_user import user
 from .crud_organization import organization
 from .crud_drone import drone, user_drone_assignment
 from .crud_flight_plan import flight_plan
-from .crud_waypoint import waypoint # If direct CRUD for waypoints is needed, usually part of flight_plan
 from .crud_telemetry_log import telemetry_log
 from .crud_restricted_zone import restricted_zone
 
-# The idea is to import crud objects here for easy access, e.g.:
-# from app.crud import user, organization
+# Only import waypoint if the file is properly implemented
+try:
+    from .crud_waypoint import waypoint
+except ImportError:
+    # waypoint CRUD is handled through flight_plan CRUD
+    pass
 ```
 
 # app/crud/base.py
@@ -2322,9 +2581,8 @@ user_drone_assignment = CRUDUserDroneAssignment(UserDroneAssignment)
 
 ```py
 from typing import Optional, List, Any
-from sqlalchemy.orm import Session, joinedload, selectinload
-from sqlalchemy import and_, or_
-
+from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.sql import func 
 from app.crud.base import CRUDBase
 from app.models.flight_plan import FlightPlan, FlightPlanStatus
 from app.models.waypoint import Waypoint
@@ -2592,7 +2850,7 @@ restricted_zone = CRUDRestrictedZone(RestrictedZone)
 # app/crud/crud_telemetry_log.py
 
 ```py
-from typing import List, Optional
+from typing import List, Optional, Any
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
@@ -2744,7 +3002,18 @@ user = CRUDUser(User)
 # app/crud/crud_waypoint.py
 
 ```py
+from typing import List
+from sqlalchemy.orm import Session
 
+from app.crud.base import CRUDBase
+from app.models.waypoint import Waypoint
+from app.schemas.waypoint import WaypointCreate, WaypointUpdate
+
+class CRUDWaypoint(CRUDBase[Waypoint, WaypointCreate, WaypointUpdate]):
+    def get_by_flight_plan_id(self, db: Session, *, flight_plan_id: int) -> List[Waypoint]:
+        return db.query(Waypoint).filter(Waypoint.flight_plan_id == flight_plan_id).order_by(Waypoint.sequence_order).all()
+
+waypoint = CRUDWaypoint(Waypoint)
 ```
 
 # app/db/__init__.py
@@ -2752,7 +3021,6 @@ user = CRUDUser(User)
 ```py
 from .base_class import Base
 from .session import SessionLocal, engine, get_db
-from .init_db import init_db # If you want to expose this directly, otherwise remove
 from . import utils # If utils contains functions to be exported
 
 # REMOVE: from app import crud, schemas
@@ -2866,36 +3134,21 @@ def apply_soft_delete_filter_to_query_condition(model: Type[ModelType], conditio
 # app/main.py
 
 ```py
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.orm import Session
 
 from app.api.v1 import api_router as api_v1_router
-from app.api.routers import telemetry # For WebSocket route
+from app.api.routers import telemetry
 from app.core.config import settings
-from app.db.session import SessionLocal, engine # For creating tables
-from app.db import base_class # To create tables using Base.metadata
-from app.db.init_db import init_db # For initial superuser creation
-
-# Create all tables in the database
-# This is usually done with Alembic migrations in production,
-# but can be useful for development or initial setup.
-# Comment out if using Alembic exclusively.
-# def create_tables():
-#     base_class.Base.metadata.create_all(bind=engine)
-# create_tables()
-
+from app.db.session import SessionLocal
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
     openapi_url=f"{settings.API_V1_STR}/openapi.json",
-    # docs_url=None, # Disable default docs if you have custom ones
-    # redoc_url=None, # Disable default ReDoc
 )
 
-# Set all CORS enabled origins
-if settings.BACKEND_CORS_ORIGINS: # BACKEND_CORS_ORIGINS should be in your settings if you use CORS
-    # Example: BACKEND_CORS_ORIGINS = ["http://localhost:3000", "https://yourdomain.com"]
+# CORS setup
+if hasattr(settings, 'BACKEND_CORS_ORIGINS') and settings.BACKEND_CORS_ORIGINS:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[str(origin) for origin in settings.BACKEND_CORS_ORIGINS],
@@ -2903,76 +3156,29 @@ if settings.BACKEND_CORS_ORIGINS: # BACKEND_CORS_ORIGINS should be in your setti
         allow_methods=["*"],
         allow_headers=["*"],
     )
-else: # Allow all origins for development if not specified
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
 
-# Include API v1 routers
 app.include_router(api_v1_router, prefix=settings.API_V1_STR)
-
-# Include WebSocket router directly on the app
-# The path is defined in telemetry.py using settings.WS_TELEMETRY_PATH
-app.include_router(telemetry.router) # This will add the @router.websocket defined in telemetry.py
-
+app.include_router(telemetry.router)
 
 @app.on_event("startup")
 async def startup_event():
     print("Application startup...")
-    # Create initial superuser if it doesn't exist
-    # This needs a synchronous DB session.
+    # Import here to avoid circular imports
+    from app.db.init_db import init_db
+    
     db = SessionLocal()
     try:
         init_db(db)
-        print("Initial database checks/setup complete.")
+        print("Initial database setup complete.")
     except Exception as e:
         print(f"Error during initial DB setup: {e}")
     finally:
         db.close()
-    
-    # Start any background tasks or services if needed
-    # Example: telemetry_service.start_monitoring_active_flights()
     print("UTM API started successfully.")
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    print("Application shutdown...")
-    # Clean up resources, e.g., stop active simulations
-    active_sim_ids = list(telemetry.telemetry_service.active_simulations.keys())
-    for flight_id in active_sim_ids:
-        telemetry.telemetry_service.stop_flight_simulation(flight_id)
-    
-    # Wait for tasks to finish if necessary
-    # tasks = [task for task in telemetry.telemetry_service.active_simulations.values()]
-    # if tasks:
-    #     await asyncio.gather(*tasks, return_exceptions=True) # Wait for tasks to complete or be cancelled
-
-    print("UTM API shut down gracefully.")
-
 
 @app.get(f"{settings.API_V1_STR}/health", tags=["Health"])
 def health_check():
     return {"status": "healthy", "message": f"Welcome to {settings.PROJECT_NAME}!"}
-
-# Add settings.BACKEND_CORS_ORIGINS to your .env.example and .env
-# Example in .env.example:
-# BACKEND_CORS_ORIGINS='["http://localhost:3000","http://localhost:8080"]'
-# Note: In .env, it should be a JSON string array if pydantic-settings is to parse it as list.
-# Or handle it as a comma-separated string and split it in config.py.
-# For simplicity, if settings.BACKEND_CORS_ORIGINS is not set, it allows all.
-# Let's adjust config.py for BACKEND_CORS_ORIGINS
-
-# In app/core/config.py, add:
-# BACKEND_CORS_ORIGINS: List[str] = ["http://localhost:3000"] # Default for development
-# And in .env:
-# BACKEND_CORS_ORIGINS='["http://localhost:3000", "http://localhost:5173"]' # Example for React/Vue dev servers
-
-# For init_db, you'll need to create app/db/init_db.py:
 ```
 
 # app/models/__init__.py
@@ -3720,16 +3926,17 @@ class TokenPayload(BaseModel):
 ```py
 import app
 from pydantic import BaseModel, EmailStr, constr, Field
-from typing import Optional, List
+from typing import Optional, List, Annotated, TYPE_CHECKING
 from datetime import datetime
 from app.models.user import UserRole # Import the enum from models
-
+if TYPE_CHECKING:
+    from app.schemas.organization import OrganizationRead
 # Shared properties
 class UserBase(BaseModel):
     email: EmailStr
     full_name: str
-    phone_number: Optional[constr(max_length=20)] = None
-    iin: Optional[constr(min_length=12, max_length=12)] = None # Kazakhstani IIN
+    phone_number: Optional[Annotated[str, constr(max_length=20)]] = None
+    iin: Optional[Annotated[str, constr(min_length=12, max_length=12)]] = None # Kazakhstani IIN
 
 # Properties to receive via API on creation (generic)
 class UserCreate(UserBase):
@@ -3753,7 +3960,7 @@ class AdminUserCreateForOrg(UserBase):
 # Properties to receive via API on update
 class UserUpdate(BaseModel):
     full_name: Optional[str] = None
-    phone_number: Optional[constr(max_length=20)] = None
+    phone_number: Optional[Annotated[str, constr(max_length=20)]] = None
     current_password: Optional[str] = None # Required if changing password
     new_password: Optional[str] = None
 
@@ -3773,17 +3980,17 @@ class UserRead(UserBase):
 # For registering an organization and its admin
 class OrganizationAdminRegister(BaseModel):
     org_name: str
-    bin: constr(min_length=12, max_length=12)
+    bin: Annotated[str, constr(min_length=12, max_length=12)]
     company_address: str
     city: str
     admin_full_name: str
     admin_email: EmailStr
     admin_password: str
-    admin_phone_number: Optional[constr(max_length=20)] = None
-    admin_iin: Optional[constr(min_length=12, max_length=12)] = None
+    admin_phone_number: Optional[Annotated[str, constr(max_length=20)]] = None
+    admin_iin: Optional[Annotated[str, constr(min_length=12, max_length=12)]] = None
 
 class OrganizationAdminRegisterResponse(BaseModel):
-    organization: "app.schemas.organization.OrganizationRead" # Use fully qualified forward ref for clarity
+    organization: "OrganizationRead" # Use fully qualified forward ref for clarity
     admin_user: UserRead
 
 class UserStatusUpdate(BaseModel):
@@ -3873,12 +4080,13 @@ connection_manager = ConnectionManager() # The instance for WebSocket connection
 from sqlalchemy.orm import Session
 from app.models.user import User, UserRole
 from app.models.flight_plan import FlightPlan, FlightPlanStatus
-from app.models.drone import Drone
+from app.models.drone import Drone, DroneStatus
 from app.schemas.flight_plan import FlightPlanCreate
 from app.crud import flight_plan as crud_flight_plan
 from app.crud import drone as crud_drone
 from app.services.nfz_service import NFZService # For NFZ checks
 from app.services.telemetry_service import telemetry_service # To start simulation
+from app.models.drone import DroneStatus
 
 class FlightService:
     def __init__(self, nfz_service: NFZService = NFZService()): # Allow injecting for tests
@@ -4072,7 +4280,82 @@ flight_service = FlightService() # Singleton instance
 # app/services/nfz_service.py
 
 ```py
+# app/services/nfz_service.py
+from typing import List, Dict, Any
+from sqlalchemy.orm import Session
+from app.crud import restricted_zone as crud_restricted_zone
+from app.schemas.waypoint import WaypointCreate
 
+class NFZService:
+    def check_flight_plan_against_nfzs(self, db: Session, waypoints: List[WaypointCreate]) -> List[str]:
+        """
+        Check if flight plan waypoints intersect with No-Fly Zones.
+        Returns list of NFZ names that are violated.
+        """
+        # For MVP, this is a placeholder implementation
+        # In a real system, you'd check waypoint coordinates against NFZ geometries
+        
+        # Get all active NFZs
+        active_nfzs = crud_restricted_zone.restricted_zone.get_all_active_zones(db)
+        
+        violations = []
+        
+        # Placeholder logic - you'd implement proper geometric intersection here
+        for waypoint in waypoints:
+            for nfz in active_nfzs:
+                # Simple placeholder check - in reality you'd use proper geometry libraries
+                # like Shapely to check if point is inside polygon/circle
+                if self._simple_point_in_nfz_check(waypoint, nfz):
+                    violations.append(nfz.name)
+        
+        return list(set(violations))  # Remove duplicates
+    
+    def check_point_against_nfzs(self, db: Session, lat: float, lon: float, alt: float) -> List[Dict[str, Any]]:
+        """
+        Check if a single point intersects with No-Fly Zones.
+        Returns list of NFZ details that are breached.
+        """
+        active_nfzs = crud_restricted_zone.restricted_zone.get_all_active_zones(db)
+        
+        breaches = []
+        for nfz in active_nfzs:
+            if self._point_in_nfz(lat, lon, alt, nfz):
+                breaches.append({
+                    'name': nfz.name,
+                    'id': nfz.id,
+                    'description': nfz.description
+                })
+        
+        return breaches
+    
+    def _simple_point_in_nfz_check(self, waypoint: WaypointCreate, nfz) -> bool:
+        """
+        Placeholder for geometric intersection check.
+        In a real implementation, you'd use proper geometric calculations.
+        """
+        # This is a very basic placeholder - always returns False for now
+        # Real implementation would:
+        # 1. Parse nfz.definition_json based on nfz.geometry_type
+        # 2. Use geometric libraries to check intersection
+        # 3. Consider altitude constraints (min_altitude_m, max_altitude_m)
+        return False
+    
+    def _point_in_nfz(self, lat: float, lon: float, alt: float, nfz) -> bool:
+        """
+        Check if a point is inside an NFZ.
+        Placeholder implementation.
+        """
+        # Check altitude constraints first
+        if nfz.min_altitude_m is not None and alt < nfz.min_altitude_m:
+            return False
+        if nfz.max_altitude_m is not None and alt > nfz.max_altitude_m:
+            return False
+        
+        # Placeholder for geometric check
+        # Real implementation would check if lat/lon is inside the NFZ geometry
+        return False
+
+nfz_service = NFZService()
 ```
 
 # app/services/telemetry_service.py
@@ -4299,6 +4582,251 @@ telemetry_service = TelemetryService() # Singleton instance
 connection_manager = ConnectionManager() # Singleton instance
 ```
 
+# db_test_report_20250525_015516.json
+
+```json
+{
+  "test_suite": "UTM Database Comprehensive Test",
+  "timestamp": "2025-05-24T20:55:16.145386+00:00",
+  "database_url": "localhost:5432/utm_db",
+  "test_data_created": {
+    "users": [
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16
+    ],
+    "organizations": [
+      1,
+      2,
+      3
+    ],
+    "drones": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19
+    ],
+    "flight_plans": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16
+    ],
+    "waypoints": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31,
+      32,
+      33,
+      34,
+      35,
+      36,
+      37,
+      38,
+      39,
+      40,
+      41,
+      42
+    ],
+    "telemetry_logs": [],
+    "restricted_zones": [
+      1,
+      2,
+      3
+    ],
+    "user_drone_assignments": [
+      [
+        6,
+        1
+      ],
+      [
+        6,
+        2
+      ],
+      [
+        7,
+        1
+      ],
+      [
+        7,
+        2
+      ],
+      [
+        8,
+        4
+      ],
+      [
+        8,
+        5
+      ],
+      [
+        9,
+        4
+      ],
+      [
+        9,
+        5
+      ],
+      [
+        10,
+        7
+      ],
+      [
+        10,
+        8
+      ],
+      [
+        11,
+        7
+      ],
+      [
+        11,
+        8
+      ]
+    ]
+  },
+  "database_schema_info": {
+    "users": {
+      "total_records": 1
+    },
+    "organizations": {
+      "total_records": 0
+    },
+    "drones": {
+      "total_records": 0
+    },
+    "flight_plans": {
+      "total_records": 0
+    },
+    "waypoints": {
+      "total_records": 0
+    },
+    "telemetry_logs": {
+      "total_records": 0
+    },
+    "restricted_zones": {
+      "total_records": 0
+    },
+    "user_drone_assignments": {
+      "total_records": 0
+    }
+  }
+}
+```
+
+# db_test_report_20250525_024019.json
+
+```json
+{
+  "test_suite": "UTM Database Comprehensive Test",
+  "timestamp": "2025-05-24T21:40:19.661556+00:00",
+  "database_url": "localhost:5432/utm_db",
+  "test_data_created": {
+    "users": [],
+    "organizations": [],
+    "drones": [],
+    "flight_plans": [],
+    "waypoints": [],
+    "telemetry_logs": [],
+    "restricted_zones": [],
+    "user_drone_assignments": []
+  },
+  "database_schema_info": {
+    "users": {
+      "total_records": 17
+    },
+    "organizations": {
+      "total_records": 4
+    },
+    "drones": {
+      "total_records": 20
+    },
+    "flight_plans": {
+      "total_records": 16
+    },
+    "waypoints": {
+      "total_records": 42
+    },
+    "telemetry_logs": {
+      "total_records": 15
+    },
+    "restricted_zones": {
+      "total_records": 3
+    },
+    "user_drone_assignments": {
+      "total_records": 12
+    }
+  }
+}
+```
+
 # docker-compose.yml
 
 ```yml
@@ -4387,18 +4915,904 @@ CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload
 # requirements.txt
 
 ```txt
-fastapi[all]
-uvicorn[standard]
-sqlalchemy
-psycopg2-binary
-alembic
-python-jose[cryptography]
-passlib[bcrypt]
-python-multipart  # For OAuth2PasswordRequestForm
-pydantic-settings # For loading .env
-greenlet # Often a dependency for SQLAlchemy async, good to have
-websockets # For WebSocket support
-# For NFZ geometry checks (optional, if you implement advanced checks)
-# shapely
+alembic==1.16.1
+annotated-types==0.7.0
+anyio==4.9.0
+bcrypt==4.3.0
+certifi==2025.4.26
+cffi==1.17.1
+click==8.1.8
+cryptography==45.0.2
+dnspython==2.7.0
+ecdsa==0.19.1
+email_validator==2.2.0
+fastapi==0.115.12
+fastapi-cli==0.0.7
+greenlet==3.2.2
+h11==0.16.0
+httpcore==1.0.9
+httptools==0.6.4
+httpx==0.28.1
+idna==3.10
+itsdangerous==2.2.0
+Jinja2==3.1.6
+Mako==1.3.10
+markdown-it-py==3.0.0
+MarkupSafe==3.0.2
+mdurl==0.1.2
+orjson==3.10.18
+passlib==1.7.4
+psycopg2-binary==2.9.10
+pyasn1==0.4.8
+pycparser==2.22
+pydantic==2.11.5
+pydantic-extra-types==2.10.4
+pydantic-settings==2.9.1
+pydantic_core==2.33.2
+Pygments==2.19.1
+python-dotenv==1.1.0
+python-jose==3.4.0
+python-multipart==0.0.20
+PyYAML==6.0.2
+rich==14.0.0
+rich-toolkit==0.14.6
+rsa==4.9.1
+shellingham==1.5.4
+six==1.17.0
+sniffio==1.3.1
+SQLAlchemy==2.0.41
+starlette==0.46.2
+typer==0.15.4
+typing-inspection==0.4.1
+typing_extensions==4.13.2
+ujson==5.10.0
+uvicorn==0.34.2
+uvloop==0.21.0
+watchfiles==1.0.5
+websockets==15.0.1
+
+```
+
+# test_database_full.py
+
+```py
+#!/usr/bin/env python3
+"""
+Comprehensive Database Test Suite for UTM Backend
+
+This script tests all database operations, relationships, and business logic
+at full scale, then cleans up all test data.
+
+Run with: python test_database_full.py
+"""
+
+import asyncio
+import json
+from datetime import datetime, timezone, timedelta
+from typing import List, Dict, Any
+import sys
+import os
+
+# Add the project root to Python path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from sqlalchemy.orm import Session
+from sqlalchemy import text
+from app.db.session import SessionLocal
+from app.core.config import settings
+from app.models.user import User, UserRole
+from app.models.organization import Organization
+from app.models.drone import Drone, DroneOwnerType, DroneStatus
+from app.models.flight_plan import FlightPlan, FlightPlanStatus
+from app.models.waypoint import Waypoint
+from app.models.telemetry_log import TelemetryLog
+from app.models.restricted_zone import RestrictedZone, NFZGeometryType
+from app.models.user_drone_assignment import UserDroneAssignment
+from app.crud import user as crud_user
+from app.crud import organization as crud_organization
+from app.crud import drone as crud_drone
+from app.crud import flight_plan as crud_flight_plan
+from app.schemas.user import UserCreate
+from app.schemas.organization import OrganizationCreate
+from app.schemas.drone import DroneCreate
+from app.schemas.flight_plan import FlightPlanCreate
+from app.schemas.waypoint import WaypointCreate
+from app.schemas.telemetry import TelemetryLogCreate
+from app.schemas.restricted_zone import RestrictedZoneCreate
+from app.core.security import get_password_hash
+
+
+class DatabaseTestSuite:
+    def __init__(self):
+        self.db = SessionLocal()
+        self.test_data_ids = {
+            'users': [],
+            'organizations': [],
+            'drones': [],
+            'flight_plans': [],
+            'waypoints': [],
+            'telemetry_logs': [],
+            'restricted_zones': [],
+            'user_drone_assignments': []
+        }
+        print(f"🔗 Connected to database: {settings.DATABASE_URL}")
+
+    def log_test(self, test_name: str, status: str = "RUNNING"):
+        """Log test progress"""
+        symbols = {"RUNNING": "⏳", "PASS": "✅", "FAIL": "❌", "INFO": "ℹ️"}
+        print(f"{symbols.get(status, '📝')} {test_name}")
+
+    def create_test_data(self):
+        """Create comprehensive test data"""
+        self.log_test("Creating comprehensive test data", "RUNNING")
+        
+        try:
+            # 1. Create Authority Admin
+            authority_admin = User(
+                full_name="Test Authority Admin",
+                email="authority@test.com",
+                phone_number="+77012345001",
+                iin="123456789001",
+                hashed_password=get_password_hash("testpass123"),
+                role=UserRole.AUTHORITY_ADMIN,
+                is_active=True
+            )
+            self.db.add(authority_admin)
+            self.db.flush()
+            self.test_data_ids['users'].append(authority_admin.id)
+
+            # 2. Create Organizations
+            organizations = []
+            for i in range(3):
+                org = Organization(
+                    name=f"Test Organization {i+1}",
+                    bin=f"12345678901{i}",
+                    company_address=f"Test Address {i+1}",
+                    city=f"Test City {i+1}",
+                    is_active=True
+                )
+                self.db.add(org)
+                self.db.flush()
+                organizations.append(org)
+                self.test_data_ids['organizations'].append(org.id)
+
+            # 3. Create Organization Admins
+            org_admins = []
+            for i, org in enumerate(organizations):
+                admin = User(
+                    full_name=f"Org Admin {i+1}",
+                    email=f"org_admin_{i+1}@test.com",
+                    phone_number=f"+7701234500{i+2}",
+                    iin=f"12345678900{i+2}",
+                    hashed_password=get_password_hash("testpass123"),
+                    role=UserRole.ORGANIZATION_ADMIN,
+                    organization_id=org.id,
+                    is_active=True
+                )
+                self.db.add(admin)
+                self.db.flush()
+                org_admins.append(admin)
+                self.test_data_ids['users'].append(admin.id)
+                
+                # Link admin to organization
+                org.admin_id = admin.id
+                self.db.add(org)
+
+            # 4. Create Organization Pilots
+            org_pilots = []
+            for i, org in enumerate(organizations):
+                for j in range(2):  # 2 pilots per organization
+                    pilot = User(
+                        full_name=f"Org Pilot {i+1}-{j+1}",
+                        email=f"org_pilot_{i+1}_{j+1}@test.com",
+                        phone_number=f"+770123451{i}{j}",
+                        iin=f"1234567891{i}{j}",
+                        hashed_password=get_password_hash("testpass123"),
+                        role=UserRole.ORGANIZATION_PILOT,
+                        organization_id=org.id,
+                        is_active=True
+                    )
+                    self.db.add(pilot)
+                    self.db.flush()
+                    org_pilots.append(pilot)
+                    self.test_data_ids['users'].append(pilot.id)
+
+            # 5. Create Solo Pilots
+            solo_pilots = []
+            for i in range(5):
+                pilot = User(
+                    full_name=f"Solo Pilot {i+1}",
+                    email=f"solo_pilot_{i+1}@test.com",
+                    phone_number=f"+7701234520{i}",
+                    iin=f"12345678920{i}",
+                    hashed_password=get_password_hash("testpass123"),
+                    role=UserRole.SOLO_PILOT,
+                    is_active=True
+                )
+                self.db.add(pilot)
+                self.db.flush()
+                solo_pilots.append(pilot)
+                self.test_data_ids['users'].append(pilot.id)
+
+            # 6. Create Drones
+            drones = []
+            
+            # Organization drones
+            for i, org in enumerate(organizations):
+                for j in range(3):  # 3 drones per organization
+                    drone = Drone(
+                        brand=f"DJI",
+                        model=f"Phantom {i+1}{j+1}",
+                        serial_number=f"ORG{i+1}_DRONE_{j+1}_SN{i:03d}{j:03d}",
+                        owner_type=DroneOwnerType.ORGANIZATION,
+                        organization_id=org.id,
+                        current_status=DroneStatus.IDLE
+                    )
+                    self.db.add(drone)
+                    self.db.flush()
+                    drones.append(drone)
+                    self.test_data_ids['drones'].append(drone.id)
+
+            # Solo pilot drones
+            for i, pilot in enumerate(solo_pilots):
+                for j in range(2):  # 2 drones per solo pilot
+                    drone = Drone(
+                        brand="Autel",
+                        model=f"EVO {i+1}{j+1}",
+                        serial_number=f"SOLO{i+1}_DRONE_{j+1}_SN{i:03d}{j:03d}",
+                        owner_type=DroneOwnerType.SOLO_PILOT,
+                        solo_owner_user_id=pilot.id,
+                        current_status=DroneStatus.IDLE
+                    )
+                    self.db.add(drone)
+                    self.db.flush()
+                    drones.append(drone)
+                    self.test_data_ids['drones'].append(drone.id)
+
+            # 7. Create User-Drone Assignments
+            org_drones = [d for d in drones if d.owner_type == DroneOwnerType.ORGANIZATION]
+            for i, pilot in enumerate(org_pilots):
+                # Assign 2 drones to each org pilot
+                org_id = pilot.organization_id
+                available_drones = [d for d in org_drones if d.organization_id == org_id]
+                for j in range(min(2, len(available_drones))):
+                    assignment = UserDroneAssignment(
+                        user_id=pilot.id,
+                        drone_id=available_drones[j].id
+                    )
+                    self.db.add(assignment)
+                    self.db.flush()
+                    self.test_data_ids['user_drone_assignments'].append((pilot.id, available_drones[j].id))
+
+            # 8. Create Restricted Zones
+            nfz_data = [
+                {
+                    "name": "Airport NFZ",
+                    "description": "Major airport restricted area",
+                    "geometry_type": NFZGeometryType.CIRCLE,
+                    "definition": {"center_lat": 43.23, "center_lon": 76.95, "radius_m": 5000},
+                    "min_alt": 0, "max_alt": 500
+                },
+                {
+                    "name": "Military Base NFZ",
+                    "description": "Military installation restricted area",
+                    "geometry_type": NFZGeometryType.POLYGON,
+                    "definition": {"coordinates": [[[76.90, 43.20], [76.92, 43.20], [76.92, 43.22], [76.90, 43.22], [76.90, 43.20]]]},
+                    "min_alt": 0, "max_alt": 1000
+                },
+                {
+                    "name": "City Center NFZ",
+                    "description": "Downtown restricted flying area",
+                    "geometry_type": NFZGeometryType.CIRCLE,
+                    "definition": {"center_lat": 43.24, "center_lon": 76.93, "radius_m": 2000},
+                    "min_alt": 0, "max_alt": 150
+                }
+            ]
+
+            for nfz in nfz_data:
+                zone = RestrictedZone(
+                    name=nfz["name"],
+                    description=nfz["description"],
+                    geometry_type=nfz["geometry_type"],
+                    definition_json=nfz["definition"],
+                    min_altitude_m=nfz["min_alt"],
+                    max_altitude_m=nfz["max_alt"],
+                    is_active=True,
+                    created_by_authority_id=authority_admin.id
+                )
+                self.db.add(zone)
+                self.db.flush()
+                self.test_data_ids['restricted_zones'].append(zone.id)
+
+            # 9. Create Flight Plans
+            flight_plans = []
+            base_time = datetime.now(timezone.utc)
+            
+            # Solo pilot flight plans
+            for i, pilot in enumerate(solo_pilots):
+                pilot_drones = [d for d in drones if d.solo_owner_user_id == pilot.id]
+                if pilot_drones:
+                    for j in range(2):  # 2 flight plans per solo pilot
+                        waypoints_data = [
+                            {"lat": 43.20 + (j*0.01), "lon": 76.90 + (j*0.01), "alt": 50 + (j*10), "order": 0},
+                            {"lat": 43.21 + (j*0.01), "lon": 76.91 + (j*0.01), "alt": 60 + (j*10), "order": 1},
+                            {"lat": 43.22 + (j*0.01), "lon": 76.92 + (j*0.01), "alt": 70 + (j*10), "order": 2},
+                        ]
+                        
+                        flight_plan = FlightPlan(
+                            user_id=pilot.id,
+                            drone_id=pilot_drones[0].id,
+                            planned_departure_time=base_time + timedelta(hours=i*2 + j),
+                            planned_arrival_time=base_time + timedelta(hours=i*2 + j + 1),
+                            status=FlightPlanStatus.PENDING_AUTHORITY_APPROVAL,
+                            notes=f"Solo pilot test flight {i+1}-{j+1}"
+                        )
+                        self.db.add(flight_plan)
+                        self.db.flush()
+                        flight_plans.append(flight_plan)
+                        self.test_data_ids['flight_plans'].append(flight_plan.id)
+                        
+                        # Add waypoints
+                        for wp_data in waypoints_data:
+                            waypoint = Waypoint(
+                                flight_plan_id=flight_plan.id,
+                                latitude=wp_data["lat"],
+                                longitude=wp_data["lon"],
+                                altitude_m=wp_data["alt"],
+                                sequence_order=wp_data["order"]
+                            )
+                            self.db.add(waypoint)
+                            self.db.flush()
+                            self.test_data_ids['waypoints'].append(waypoint.id)
+
+            # Organization pilot flight plans
+            for i, pilot in enumerate(org_pilots):
+                assigned_drones = [a for a in self.test_data_ids['user_drone_assignments'] if a[0] == pilot.id]
+                if assigned_drones:
+                    drone_id = assigned_drones[0][1]  # Use first assigned drone
+                    waypoints_data = [
+                        {"lat": 43.25 + (i*0.01), "lon": 76.95 + (i*0.01), "alt": 80 + (i*5), "order": 0},
+                        {"lat": 43.26 + (i*0.01), "lon": 76.96 + (i*0.01), "alt": 90 + (i*5), "order": 1},
+                    ]
+                    
+                    flight_plan = FlightPlan(
+                        user_id=pilot.id,
+                        drone_id=drone_id,
+                        organization_id=pilot.organization_id,
+                        planned_departure_time=base_time + timedelta(hours=24 + i),
+                        planned_arrival_time=base_time + timedelta(hours=25 + i),
+                        status=FlightPlanStatus.PENDING_ORG_APPROVAL,
+                        notes=f"Organization pilot test flight {i+1}"
+                    )
+                    self.db.add(flight_plan)
+                    self.db.flush()
+                    flight_plans.append(flight_plan)
+                    self.test_data_ids['flight_plans'].append(flight_plan.id)
+                    
+                    # Add waypoints
+                    for wp_data in waypoints_data:
+                        waypoint = Waypoint(
+                            flight_plan_id=flight_plan.id,
+                            latitude=wp_data["lat"],
+                            longitude=wp_data["lon"],
+                            altitude_m=wp_data["alt"],
+                            sequence_order=wp_data["order"]
+                        )
+                        self.db.add(waypoint)
+                        self.db.flush()
+                        self.test_data_ids['waypoints'].append(waypoint.id)
+
+            # 10. Create Telemetry Data
+            for flight_plan in flight_plans[:5]:  # Add telemetry for first 5 flights
+                drone = next(d for d in drones if d.id == flight_plan.drone_id)
+                waypoints = [w for w in self.db.query(Waypoint).filter_by(flight_plan_id=flight_plan.id).all()]
+                
+                for i, waypoint in enumerate(waypoints):
+                    telemetry = TelemetryLog(
+                        flight_plan_id=flight_plan.id,
+                        drone_id=drone.id,
+                        timestamp=flight_plan.planned_departure_time + timedelta(minutes=i*10),
+                        latitude=waypoint.latitude,
+                        longitude=waypoint.longitude,
+                        altitude_m=waypoint.altitude_m,
+                        speed_mps=15.0 + (i * 2),
+                        heading_degrees=90.0 + (i * 45),
+                        status_message="ON_SCHEDULE"
+                    )
+                    self.db.add(telemetry)
+                    self.db.flush()
+                    self.test_data_ids['telemetry_logs'].append(telemetry.id)
+                    
+                    # Update drone's last telemetry
+                    drone.last_telemetry_id = telemetry.id
+                    drone.last_seen_at = telemetry.timestamp
+
+            self.db.commit()
+            self.log_test("Test data creation completed", "PASS")
+            
+        except Exception as e:
+            self.db.rollback()
+            self.log_test(f"Test data creation failed: {str(e)}", "FAIL")
+            raise
+
+    def test_crud_operations(self):
+        """Test all CRUD operations"""
+        self.log_test("Testing CRUD operations", "RUNNING")
+        
+        try:
+            # Test user CRUD
+            users = crud_user.user.get_multi(self.db, limit=100)
+            assert len(users) >= 11, f"Expected at least 11 users, got {len(users)}"
+            
+            # Test organization CRUD
+            orgs = crud_organization.organization.get_multi(self.db, limit=100)
+            assert len(orgs) >= 3, f"Expected at least 3 organizations, got {len(orgs)}"
+            
+            # Test drone CRUD
+            drones = crud_drone.drone.get_multi(self.db, limit=100)
+            assert len(drones) >= 19, f"Expected at least 19 drones, got {len(drones)}"  # 9 org + 10 solo
+            
+            # Test flight plan CRUD
+            flight_plans = crud_flight_plan.flight_plan.get_multi(self.db, limit=100)
+            assert len(flight_plans) >= 16, f"Expected at least 16 flight plans, got {len(flight_plans)}"
+            
+            self.log_test("CRUD operations test", "PASS")
+            
+        except Exception as e:
+            self.log_test(f"CRUD operations test failed: {str(e)}", "FAIL")
+            raise
+
+    def test_relationships(self):
+        """Test database relationships"""
+        self.log_test("Testing database relationships", "RUNNING")
+        
+        try:
+            # Test User-Organization relationship
+            org_admin = self.db.query(User).filter_by(role=UserRole.ORGANIZATION_ADMIN).first()
+            assert org_admin.organization is not None, "Organization admin should have an organization"
+            assert org_admin.organization.admin_id == org_admin.id, "Organization should reference admin"
+            
+            # Test Drone ownership relationships
+            org_drone = self.db.query(Drone).filter_by(owner_type=DroneOwnerType.ORGANIZATION).first()
+            assert org_drone.organization_owner is not None, "Org drone should have organization owner"
+            
+            solo_drone = self.db.query(Drone).filter_by(owner_type=DroneOwnerType.SOLO_PILOT).first()
+            assert solo_drone.solo_owner_user is not None, "Solo drone should have user owner"
+            
+            # Test Flight Plan relationships
+            flight_plan = self.db.query(FlightPlan).first()
+            assert flight_plan.submitter_user is not None, "Flight plan should have submitter"
+            assert flight_plan.drone is not None, "Flight plan should have drone"
+            assert len(flight_plan.waypoints) > 0, "Flight plan should have waypoints"
+            
+            # Test User-Drone assignments
+            assignment = self.db.query(UserDroneAssignment).first()
+            assert assignment.user is not None, "Assignment should have user"
+            assert assignment.drone is not None, "Assignment should have drone"
+            
+            # Test Telemetry relationships
+            telemetry = self.db.query(TelemetryLog).first()
+            if telemetry:
+                assert telemetry.drone is not None, "Telemetry should have drone"
+                assert telemetry.flight_plan is not None, "Telemetry should have flight plan"
+            
+            self.log_test("Database relationships test", "PASS")
+            
+        except Exception as e:
+            self.log_test(f"Database relationships test failed: {str(e)}", "FAIL")
+            raise
+
+    def test_business_logic(self):
+        """Test business logic constraints"""
+        self.log_test("Testing business logic constraints", "RUNNING")
+        
+        try:
+            # Test user roles and permissions
+            authority_admins = self.db.query(User).filter_by(role=UserRole.AUTHORITY_ADMIN).all()
+            assert len(authority_admins) >= 1, "Should have at least one authority admin"
+            
+            # Test organization constraints
+            org_admins = self.db.query(User).filter_by(role=UserRole.ORGANIZATION_ADMIN).all()
+            for admin in org_admins:
+                assert admin.organization_id is not None, "Org admin must have organization"
+                assert admin.organization.admin_id == admin.id, "Organization must reference admin"
+            
+            # Test drone ownership constraints
+            org_drones = self.db.query(Drone).filter_by(owner_type=DroneOwnerType.ORGANIZATION).all()
+            for drone in org_drones:
+                assert drone.organization_id is not None, "Org drone must have organization"
+                assert drone.solo_owner_user_id is None, "Org drone cannot have solo owner"
+            
+            solo_drones = self.db.query(Drone).filter_by(owner_type=DroneOwnerType.SOLO_PILOT).all()
+            for drone in solo_drones:
+                assert drone.solo_owner_user_id is not None, "Solo drone must have user owner"
+                assert drone.organization_id is None, "Solo drone cannot have organization"
+            
+            # Test flight plan status workflow
+            pending_org = self.db.query(FlightPlan).filter_by(status=FlightPlanStatus.PENDING_ORG_APPROVAL).all()
+            pending_auth = self.db.query(FlightPlan).filter_by(status=FlightPlanStatus.PENDING_AUTHORITY_APPROVAL).all()
+            
+            for fp in pending_org:
+                assert fp.organization_id is not None, "Org approval flight must have organization"
+            
+            # Test waypoint ordering
+            flight_plans_with_waypoints = self.db.query(FlightPlan).join(Waypoint).all()
+            for fp in flight_plans_with_waypoints:
+                waypoints = sorted(fp.waypoints, key=lambda w: w.sequence_order)
+                for i, wp in enumerate(waypoints):
+                    assert wp.sequence_order == i, f"Waypoint order should be sequential, expected {i}, got {wp.sequence_order}"
+            
+            self.log_test("Business logic constraints test", "PASS")
+            
+        except Exception as e:
+            self.log_test(f"Business logic constraints test failed: {str(e)}", "FAIL")
+            raise
+
+    def test_data_integrity(self):
+        """Test data integrity and constraints"""
+        self.log_test("Testing data integrity", "RUNNING")
+        
+        try:
+            # Test unique constraints
+            emails = [user.email for user in self.db.query(User).all()]
+            assert len(emails) == len(set(emails)), "User emails should be unique"
+            
+            serial_numbers = [drone.serial_number for drone in self.db.query(Drone).all()]
+            assert len(serial_numbers) == len(set(serial_numbers)), "Drone serial numbers should be unique"
+            
+            org_names = [org.name for org in self.db.query(Organization).all()]
+            assert len(org_names) == len(set(org_names)), "Organization names should be unique"
+            
+            org_bins = [org.bin for org in self.db.query(Organization).all()]
+            assert len(org_bins) == len(set(org_bins)), "Organization BINs should be unique"
+            
+            # Test foreign key integrity
+            flight_plans = self.db.query(FlightPlan).all()
+            for fp in flight_plans:
+                assert self.db.query(User).filter_by(id=fp.user_id).first() is not None, "Flight plan user must exist"
+                assert self.db.query(Drone).filter_by(id=fp.drone_id).first() is not None, "Flight plan drone must exist"
+            
+            # Test cascade constraints
+            waypoints = self.db.query(Waypoint).all()
+            for wp in waypoints:
+                assert self.db.query(FlightPlan).filter_by(id=wp.flight_plan_id).first() is not None, "Waypoint flight plan must exist"
+            
+            self.log_test("Data integrity test", "PASS")
+            
+        except Exception as e:
+            self.log_test(f"Data integrity test failed: {str(e)}", "FAIL")
+            raise
+
+    def test_performance(self):
+        """Test database performance with complex queries"""
+        self.log_test("Testing database performance", "RUNNING")
+        
+        try:
+            import time
+            
+            # Test complex join query performance
+            start_time = time.time()
+            complex_query = self.db.query(FlightPlan)\
+                .join(User)\
+                .join(Drone)\
+                .outerjoin(Organization)\
+                .outerjoin(Waypoint)\
+                .outerjoin(TelemetryLog)\
+                .limit(100).all()
+            query_time = time.time() - start_time
+            
+            assert query_time < 5.0, f"Complex query took too long: {query_time:.2f}s"
+            
+            # Test pagination performance
+            start_time = time.time()
+            paginated_users = crud_user.user.get_multi(self.db, skip=0, limit=50)
+            pagination_time = time.time() - start_time
+            
+            assert pagination_time < 1.0, f"Pagination query took too long: {pagination_time:.2f}s"
+            
+            # Test aggregation performance
+            start_time = time.time()
+            user_count = self.db.query(User).count()
+            drone_count = self.db.query(Drone).count()
+            flight_count = self.db.query(FlightPlan).count()
+            aggregation_time = time.time() - start_time
+            
+            assert aggregation_time < 1.0, f"Aggregation queries took too long: {aggregation_time:.2f}s"
+            
+            self.log_test(f"Performance test (Query: {query_time:.2f}s, Pagination: {pagination_time:.2f}s, Aggregation: {aggregation_time:.2f}s)", "PASS")
+            
+        except Exception as e:
+            self.log_test(f"Performance test failed: {str(e)}", "FAIL")
+            raise
+
+    def print_test_summary(self):
+        """Print summary of created test data"""
+        self.log_test("Test Data Summary", "INFO")
+        
+        summary = {
+            'Users': len(self.test_data_ids['users']),
+            'Organizations': len(self.test_data_ids['organizations']),
+            'Drones': len(self.test_data_ids['drones']),
+            'Flight Plans': len(self.test_data_ids['flight_plans']),
+            'Waypoints': len(self.test_data_ids['waypoints']),
+            'Telemetry Logs': len(self.test_data_ids['telemetry_logs']),
+            'Restricted Zones': len(self.test_data_ids['restricted_zones']),
+            'User-Drone Assignments': len(self.test_data_ids['user_drone_assignments'])
+        }
+        
+        for entity, count in summary.items():
+            print(f"  📊 {entity}: {count} records")
+        
+        # Print some sample data
+        print("\n📋 Sample Data:")
+        
+        # Sample users by role
+        users_by_role = {}
+        for user in self.db.query(User).all():
+            role = user.role.value
+            if role not in users_by_role:
+                users_by_role[role] = []
+            users_by_role[role].append(user.email)
+        
+        for role, emails in users_by_role.items():
+            print(f"  👤 {role}: {len(emails)} users")
+            if emails:
+                print(f"      Example: {emails[0]}")
+        
+        # Sample flight plans by status
+        fp_by_status = {}
+        for fp in self.db.query(FlightPlan).all():
+            status = fp.status.value
+            if status not in fp_by_status:
+                fp_by_status[status] = 0
+            fp_by_status[status] += 1
+        
+        print(f"\n  ✈️  Flight Plans by Status:")
+        for status, count in fp_by_status.items():
+            print(f"      {status}: {count}")
+
+    def cleanup_test_data(self):
+        """Clean up all test data"""
+        self.log_test("Cleaning up test data", "RUNNING")
+        
+        try:
+            # Order matters due to foreign key constraints
+            cleanup_order = [
+                ('telemetry_logs', TelemetryLog),
+                ('waypoints', Waypoint),
+                ('flight_plans', FlightPlan),
+                ('user_drone_assignments', UserDroneAssignment),
+                ('drones', Drone),
+                ('restricted_zones', RestrictedZone),
+                ('users', User),
+                ('organizations', Organization)
+            ]
+            
+            for table_name, model_class in cleanup_order:
+                if table_name == 'user_drone_assignments':
+                    # Special handling for composite key
+                    for user_id, drone_id in self.test_data_ids[table_name]:
+                        assignment = self.db.query(UserDroneAssignment).filter_by(
+                            user_id=user_id, drone_id=drone_id
+                        ).first()
+                        if assignment:
+                            self.db.delete(assignment)
+                else:
+                    ids_to_delete = self.test_data_ids[table_name]
+                    if ids_to_delete:
+                        # Delete in batches for better performance
+                        for i in range(0, len(ids_to_delete), 100):
+                            batch = ids_to_delete[i:i+100]
+                            self.db.query(model_class).filter(model_class.id.in_(batch)).delete(synchronize_session=False)
+                        
+                print(f"  🗑️  Cleaned {len(self.test_data_ids[table_name])} {table_name}")
+            
+            self.db.commit()
+            self.log_test("Test data cleanup completed", "PASS")
+            
+        except Exception as e:
+            self.db.rollback()
+            self.log_test(f"Test data cleanup failed: {str(e)}", "FAIL")
+            raise
+
+    def verify_cleanup(self):
+        """Verify that all test data has been cleaned up"""
+        self.log_test("Verifying cleanup", "RUNNING")
+        
+        try:
+            # Check that test data is gone
+            remaining_counts = {}
+            
+            # Count remaining test users (by email pattern)
+            remaining_counts['test_users'] = self.db.query(User).filter(
+                User.email.like('%@test.com')
+            ).count()
+            
+            # Count remaining test organizations (by name pattern)
+            remaining_counts['test_orgs'] = self.db.query(Organization).filter(
+                Organization.name.like('Test Organization%')
+            ).count()
+            
+            # Count remaining test drones (by serial number pattern)
+            remaining_counts['test_drones'] = self.db.query(Drone).filter(
+                Drone.serial_number.like('%_SN%')
+            ).count()
+            
+            # Count remaining test flight plans (by notes pattern)
+            remaining_counts['test_flights'] = self.db.query(FlightPlan).filter(
+                FlightPlan.notes.like('%test flight%')
+            ).count()
+            
+            # Count remaining test NFZs (by name pattern)
+            remaining_counts['test_nfz'] = self.db.query(RestrictedZone).filter(
+                RestrictedZone.name.like('%NFZ')
+            ).count()
+            
+            total_remaining = sum(remaining_counts.values())
+            
+            if total_remaining == 0:
+                self.log_test("Cleanup verification passed - no test data remaining", "PASS")
+            else:
+                self.log_test(f"Cleanup verification warning - {total_remaining} test records may remain", "INFO")
+                for entity, count in remaining_counts.items():
+                    if count > 0:
+                        print(f"  ⚠️  {entity}: {count} remaining")
+            
+        except Exception as e:
+            self.log_test(f"Cleanup verification failed: {str(e)}", "FAIL")
+
+    def generate_test_report(self):
+        """Generate a comprehensive test report"""
+        self.log_test("Generating test report", "INFO")
+        
+        report = {
+            "test_suite": "UTM Database Comprehensive Test",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "database_url": settings.DATABASE_URL.split('@')[1] if '@' in settings.DATABASE_URL else "hidden",
+            "test_data_created": self.test_data_ids,
+            "database_schema_info": {}
+        }
+        
+        try:
+            # Get table information
+            tables_info = {}
+            table_names = ['users', 'organizations', 'drones', 'flight_plans', 'waypoints', 
+                          'telemetry_logs', 'restricted_zones', 'user_drone_assignments']
+            
+            for table_name in table_names:
+                count_query = text(f"SELECT COUNT(*) FROM {table_name}")
+                count_result = self.db.execute(count_query).scalar()
+                tables_info[table_name] = {"total_records": count_result}
+            
+            report["database_schema_info"] = tables_info
+            
+            # Save report to file
+            report_filename = f"db_test_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            with open(report_filename, 'w') as f:
+                json.dump(report, f, indent=2, default=str)
+            
+            print(f"📄 Test report saved to: {report_filename}")
+            
+        except Exception as e:
+            self.log_test(f"Report generation failed: {str(e)}", "FAIL")
+
+    def run_stress_test(self):
+        """Run stress tests with high volume data"""
+        self.log_test("Running stress test", "RUNNING")
+        
+        try:
+            import time
+            stress_test_ids = []
+            
+            # Create many users quickly
+            start_time = time.time()
+            for i in range(100):
+                user = User(
+                    full_name=f"Stress Test User {i}",
+                    email=f"stress_test_{i}@test.com",
+                    phone_number=f"+77000000{i:03d}",
+                    iin=f"99999999{i:03d}",
+                    hashed_password=get_password_hash("stresstest"),
+                    role=UserRole.SOLO_PILOT,
+                    is_active=True
+                )
+                self.db.add(user)
+                if i % 20 == 0:  # Commit in batches
+                    self.db.flush()
+                    
+            self.db.commit()
+            creation_time = time.time() - start_time
+            
+            # Test bulk query performance
+            start_time = time.time()
+            stress_users = self.db.query(User).filter(User.email.like('stress_test_%')).all()
+            query_time = time.time() - start_time
+            
+            # Cleanup stress test data
+            start_time = time.time()
+            self.db.query(User).filter(User.email.like('stress_test_%')).delete()
+            self.db.commit()
+            cleanup_time = time.time() - start_time
+            
+            self.log_test(f"Stress test (Create: {creation_time:.2f}s, Query: {query_time:.2f}s, Cleanup: {cleanup_time:.2f}s)", "PASS")
+            
+        except Exception as e:
+            self.db.rollback()
+            self.log_test(f"Stress test failed: {str(e)}", "FAIL")
+            raise
+
+    def run_all_tests(self):
+        """Run the complete test suite"""
+        print("🚀 Starting Comprehensive Database Test Suite")
+        print("=" * 60)
+        
+        start_time = datetime.now()
+        
+        try:
+            # Create test data
+            self.create_test_data()
+            
+            # Print summary of created data
+            self.print_test_summary()
+            
+            print("\n" + "=" * 60)
+            print("🧪 Running Database Tests")
+            print("=" * 60)
+            
+            # Run all tests
+            self.test_crud_operations()
+            self.test_relationships()
+            self.test_business_logic()
+            self.test_data_integrity()
+            self.test_performance()
+            self.run_stress_test()
+            
+            print("\n" + "=" * 60)
+            print("✅ All tests completed successfully!")
+            
+            end_time = datetime.now()
+            duration = end_time - start_time
+            print(f"⏱️  Total test duration: {duration.total_seconds():.2f} seconds")
+            print("=" * 60)
+            
+        except Exception as e:
+            print(f"\n❌ Test suite failed: {str(e)}")
+            raise
+        
+        finally:
+            # Always clean up, even if tests fail
+            print("\n" + "=" * 60)
+            print("🧹 Cleaning Up Test Data")
+            print("=" * 60)
+            self.cleanup_test_data()
+            self.verify_cleanup()
+            self.generate_test_report()
+            self.db.close()
+            print("🎉 Database test suite completed!")
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self.db:
+            self.db.close()
+
+
+def main():
+    """Main function to run the test suite"""
+    try:
+        with DatabaseTestSuite() as test_suite:
+            test_suite.run_all_tests()
+    except KeyboardInterrupt:
+        print("\n⚠️  Test suite interrupted by user")
+    except Exception as e:
+        print(f"\n💥 Test suite failed with error: {str(e)}")
+        return 1
+    
+    return 0
+
+
+if __name__ == "__main__":
+    exit(main())
 ```
 

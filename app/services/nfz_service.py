@@ -14,7 +14,7 @@ class NFZService:
         # In a real system, you'd check waypoint coordinates against NFZ geometries
         
         # Get all active NFZs
-        active_nfzs = crud_restricted_zone.restricted_zone.get_all_active_zones(db)
+        active_nfzs = crud_restricted_zone.get_all_active_zones(db)
         
         violations = []
         
@@ -33,7 +33,7 @@ class NFZService:
         Check if a single point intersects with No-Fly Zones.
         Returns list of NFZ details that are breached.
         """
-        active_nfzs = crud_restricted_zone.restricted_zone.get_all_active_zones(db)
+        active_nfzs = crud_restricted_zone.get_all_active_zones(db)
         
         breaches = []
         for nfz in active_nfzs:

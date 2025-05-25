@@ -21,7 +21,7 @@ class FlightService:
         submitter: User
     ) -> FlightPlan:
         # 1. Validate Drone
-        db_drone = crud_drone.drone.get(db, id=flight_plan_in.drone_id)
+        db_drone = crud_drone.get(db, id=flight_plan_in.drone_id)
         if not db_drone:
             raise ValueError("Drone not found.")
         
@@ -63,7 +63,7 @@ class FlightService:
             raise ValueError("Cannot determine initial flight plan status for user role.")
 
         # 4. Create Flight Plan
-        created_flight_plan = crud_flight_plan.flight_plan.create_with_waypoints(
+        created_flight_plan = crud_flight_plan.create_with_waypoints(
             db, 
             obj_in=flight_plan_in, 
             user_id=submitter.id,
@@ -81,7 +81,7 @@ class FlightService:
         actor: User, # User performing the action
         rejection_reason: str | None = None,
     ) -> FlightPlan:
-        db_flight_plan = crud_flight_plan.flight_plan.get(db, id=flight_plan_id)
+        db_flight_plan = crud_flight_plan.get(db, id=flight_plan_id)
         if not db_flight_plan:
             raise ValueError("Flight plan not found.")
 
@@ -125,7 +125,7 @@ class FlightService:
         else:
             raise ValueError("User role not authorized to update flight plan status.")
 
-        return crud_flight_plan.flight_plan.update_status(
+        return crud_flight_plan.update_status(
             db, 
             db_obj=db_flight_plan, 
             new_status=new_status, 
@@ -135,7 +135,7 @@ class FlightService:
         )
 
     def start_flight(self, db: Session, *, flight_plan_id: int, pilot: User) -> FlightPlan:
-        db_flight_plan = crud_flight_plan.flight_plan.get(db, id=flight_plan_id)
+        db_flight_plan = crud_flight_plan.get(db, id=flight_plan_id)
         if not db_flight_plan:
             raise ValueError("Flight plan not found.")
         if db_flight_plan.user_id != pilot.id:
@@ -143,7 +143,7 @@ class FlightService:
         if db_flight_plan.status != FlightPlanStatus.APPROVED:
             raise ValueError(f"Flight plan must be APPROVED to start. Current status: {db_flight_plan.status}")
 
-        started_flight = crud_flight_plan.flight_plan.start_flight(db, db_obj=db_flight_plan)
+        started_flight = crud_flight_plan.start_flight(db, db_obj=db_flight_plan)
         
         # Start telemetry simulation for this flight
         telemetry_service.start_flight_simulation(db, flight_plan=started_flight)
@@ -158,7 +158,7 @@ class FlightService:
         actor: User, 
         reason: str | None = None
     ) -> FlightPlan:
-        db_flight_plan = crud_flight_plan.flight_plan.get(db, id=flight_plan_id)
+        db_flight_plan = crud_flight_plan.get(db, id=flight_plan_id)
         if not db_flight_plan:
             raise ValueError("Flight plan not found.")
 
@@ -188,11 +188,11 @@ class FlightService:
         if db_flight_plan.status == FlightPlanStatus.ACTIVE:
             telemetry_service.stop_flight_simulation(flight_plan_id)
             # Also update drone status if it was active
-            db_drone = crud_drone.drone.get(db, id=db_flight_plan.drone_id)
+            db_drone = crud_drone.get(db, id=db_flight_plan.drone_id)
             if db_drone and db_drone.current_status == DroneStatus.ACTIVE:
-                crud_drone.drone.update(db, db_obj=db_drone, obj_in={"current_status": DroneStatus.IDLE})
+                crud_drone.update(db, db_obj=db_drone, obj_in={"current_status": DroneStatus.IDLE})
 
 
-        return crud_flight_plan.flight_plan.cancel_flight(db, db_obj=db_flight_plan, cancelled_by_role=cancelled_by_role_type, reason=reason)
+        return crud_flight_plan.cancel_flight(db, db_obj=db_flight_plan, cancelled_by_role=cancelled_by_role_type, reason=reason)
 
 flight_service = FlightService() # Singleton instance

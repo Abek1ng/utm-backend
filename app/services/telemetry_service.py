@@ -64,13 +64,13 @@ class TelemetryService:
         # This is important because the original request's session will be closed.
         db: Session = SessionLocal()
         try:
-            fp = crud_flight_plan.flight_plan.get_flight_plan_with_details(db, id=flight_plan_id)
+            fp = crud_flight_plan.get_flight_plan_with_details(db, id=flight_plan_id)
             if not fp or not fp.waypoints:
                 print(f"Flight plan {flight_plan_id} not found or no waypoints for simulation.")
                 return
 
             # Update drone status to ACTIVE
-            db_drone = crud_drone.drone.get(db, id=fp.drone_id)
+            db_drone = crud_drone.get(db, id=fp.drone_id)
             if db_drone:
                 db_drone.current_status = DroneStatus.ACTIVE
                 db.add(db_drone)
@@ -120,7 +120,7 @@ class TelemetryService:
                     heading_degrees=heading_degrees,
                     status_message=status_message,
                 )
-                db_log_entry = crud_telemetry_log.telemetry_log.create(db, obj_in=log_entry)
+                db_log_entry = crud_telemetry_log.create(db, obj_in=log_entry)
 
                 # Update drone's last seen and last telemetry
                 if db_drone:
@@ -163,7 +163,7 @@ class TelemetryService:
             # Re-fetch flight plan to get its current status from DB
             db.refresh(fp) # Refresh fp object
             if not stop_event.is_set() and fp.status == FlightPlanStatus.ACTIVE:
-                crud_flight_plan.flight_plan.complete_flight(db, db_obj=fp)
+                crud_flight_plan.complete_flight(db, db_obj=fp)
                 final_status_message = "FLIGHT_COMPLETED"
             
             # Update drone status to IDLE

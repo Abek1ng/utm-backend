@@ -1,0 +1,41 @@
+{
+  "test_suite": "UTM Database Comprehensive Test",
+  "timestamp": "2025-05-24T21:40:19.661556+00:00",
+  "database_url": "localhost:5432/utm_db",
+  "test_data_created": {
+    "users": [],
+    "organizations": [],
+    "drones": [],
+    "flight_plans": [],
+    "waypoints": [],
+    "telemetry_logs": [],
+    "restricted_zones": [],
+    "user_drone_assignments": []
+  },
+  "database_schema_info": {
+    "users": {
+      "total_records": 17
+    },
+    "organizations": {
+      "total_records": 4
+    },
+    "drones": {
+      "total_records": 20
+    },
+    "flight_plans": {
+      "total_records": 16
+    },
+    "waypoints": {
+      "total_records": 42
+    },
+    "telemetry_logs": {
+      "total_records": 15
+    },
+    "restricted_zones": {
+      "total_records": 3
+    },
+    "user_drone_assignments": {
+      "total_records": 12
+    }
+  }
+}

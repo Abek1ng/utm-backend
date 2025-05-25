@@ -64,7 +64,7 @@ async def get_active_flights_remote_id(
 
 
     # 1. Get all active flight plans
-    active_flight_plans = crud_flight_plan.flight_plan.get_all_flight_plans_admin(
+    active_flight_plans = crud_flight_plan.get_all_flight_plans_admin(
         db, status=FlightPlanStatus.ACTIVE, limit=1000 # Get all active
     )
 
@@ -72,8 +72,8 @@ async def get_active_flights_remote_id(
 
     for fp in active_flight_plans:
         # 2. For each active flight, get its latest telemetry
-        latest_telemetry = crud_telemetry_log.telemetry_log.get_latest_log_for_drone(db, drone_id=fp.drone_id)
-        db_drone = crud_drone.drone.get(db, id=fp.drone_id) # Get drone for serial number
+        latest_telemetry = crud_telemetry_log.get_latest_log_for_drone(db, drone_id=fp.drone_id)
+        db_drone = crud_drone.get(db, id=fp.drone_id) # Get drone for serial number
 
         if latest_telemetry and db_drone:
             operator_id = None
