@@ -34,6 +34,20 @@ class CRUDFlightPlan(CRUDBase[FlightPlan, FlightPlanCreate, FlightPlanUpdate]):
         db.refresh(db_flight_plan)
         return db_flight_plan
 
+    def get_multi_for_user_with_details(
+        self, db: Session, *, user_id: int, skip: int = 0, limit: int = 100, status: Optional[FlightPlanStatus] = None, include_deleted: bool = False
+    ) -> List[FlightPlan]:
+        query = db.query(FlightPlan).options(
+            selectinload(FlightPlan.drone),
+            selectinload(FlightPlan.waypoints) # Load waypoints as well
+        ).filter(FlightPlan.user_id == user_id)
+        
+        if not include_deleted:
+            query = query.filter(FlightPlan.deleted_at.is_(None))
+        if status:
+            query = query.filter(FlightPlan.status == status)
+        return query.order_by(FlightPlan.planned_departure_time.desc()).offset(skip).limit(limit).all()
+
     def get_flight_plan_with_details(self, db: Session, id: int, include_deleted: bool = False) -> Optional[FlightPlan]:
         query = db.query(FlightPlan).options(
             selectinload(FlightPlan.waypoints),

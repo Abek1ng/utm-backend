@@ -36,7 +36,7 @@ def submit_new_flight_plan(
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error processing flight plan.")
 
 
-@router.get("/my", response_model=List[schemas.FlightPlanReadWithWaypoints])  # Change the response model
+@router.get("/my", response_model=List[schemas.FlightPlanReadWithWaypoints])
 def list_my_flight_plans(
     db: Session = Depends(deps.get_db),
     skip: int = Query(0, ge=0),
@@ -48,7 +48,8 @@ def list_my_flight_plans(
     List flight plans submitted by the currently authenticated user (Pilot).
     Includes drone details and waypoints.
     """
-    flight_plans = crud.flight_plan.get_multi_for_user_with_drone(
+    # Use a CRUD method that loads drone and waypoints
+    flight_plans = crud.flight_plan.get_multi_for_user_with_details( # Changed method name
         db, user_id=current_user.id, skip=skip, limit=limit, status=status_filter
     )
     return flight_plans

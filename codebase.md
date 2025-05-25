@@ -585,9 +585,8 @@ def downgrade() -> None:
 
 ```py
 from typing import Generator, Optional, List
-
-from fastapi import Depends, HTTPException, status, Security
-from fastapi.security import OAuth2PasswordBearer, SecurityScopes
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt, JWTError
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
@@ -599,30 +598,19 @@ from app.models.user import User, UserRole
 from app.schemas.token import TokenPayload
 from app.crud import user as crud_user  # This imports the 'user' instance
 
-reusable_oauth2 = OAuth2PasswordBearer(
-    tokenUrl=f"{settings.API_V1_STR}/auth/login/access-token",
-    scopes={
-        UserRole.AUTHORITY_ADMIN: "Full system access.",
-        UserRole.ORGANIZATION_ADMIN: "Manage own organization resources.",
-        UserRole.ORGANIZATION_PILOT: "Manage own flights within organization.",
-        UserRole.SOLO_PILOT: "Manage own flights and drones.",
-    }
-)
+reusable_http_bearer = HTTPBearer(auto_error=True)
+
 
 def get_current_user(
-    security_scopes: SecurityScopes,
     db: Session = Depends(get_db),
-    token: str = Depends(reusable_oauth2),
+    credentials: HTTPAuthorizationCredentials = Depends(reusable_http_bearer),
 ) -> User:
-    if security_scopes.scopes:
-        authenticate_value = f'Bearer scope="{security_scopes.scope_str}"'
-    else:
-        authenticate_value = "Bearer"
+    token = credentials.credentials
         
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
-        headers={"WWW-Authenticate": authenticate_value},
+        headers={"WWW-Authenticate": "Bearer"},
     )
     try:
         payload = jwt.decode(
@@ -741,7 +729,8 @@ from app import crud, models, schemas
 from app.api import deps
 from app.core import security
 from app.core.config import settings
-from app.models.user import UserRole # For setting roles
+from app.models.user import User, UserRole # For setting roles
+from app.schemas.user import UserRead 
 
 router = APIRouter()
 
@@ -910,6 +899,13 @@ def login_access_token(
         user.id, expires_delta=access_token_expires
     )
     return {"access_token": access_token, "token_type": "bearer"}
+
+@router.get("/me", response_model=UserRead)
+async def read_current_user(
+    current_user: User = Depends(deps.get_current_user),
+) -> Any:
+    """Get current user information."""
+    return current_user
 ```
 
 # app/api/routers/drones.py
@@ -1262,22 +1258,23 @@ def submit_new_flight_plan(
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e: # Catch other unexpected errors
-        # Log the error e
+        print(f"Error processing flight plan: {e}")  # Log the error
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error processing flight plan.")
 
 
-@router.get("/my", response_model=List[schemas.FlightPlanRead])
+@router.get("/my", response_model=List[schemas.FlightPlanReadWithWaypoints])  # Change the response model
 def list_my_flight_plans(
     db: Session = Depends(deps.get_db),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=200),
-    status_filter: Optional[FlightPlanStatus] = Query(None, alias="status"), # Use alias for query param
+    status_filter: Optional[FlightPlanStatus] = Query(None, alias="status"),
     current_user: models.User = Depends(deps.get_current_pilot),
 ) -> Any:
     """
     List flight plans submitted by the currently authenticated user (Pilot).
+    Includes drone details and waypoints.
     """
-    flight_plans = crud.flight_plan.get_multi_for_user(
+    flight_plans = crud.flight_plan.get_multi_for_user_with_drone(
         db, user_id=current_user.id, skip=skip, limit=limit, status=status_filter
     )
     return flight_plans
@@ -2180,7 +2177,7 @@ async def get_active_flights_remote_id(
 
 
     # 1. Get all active flight plans
-    active_flight_plans = crud_flight_plan.flight_plan.get_all_flight_plans_admin(
+    active_flight_plans = crud_flight_plan.get_all_flight_plans_admin(
         db, status=FlightPlanStatus.ACTIVE, limit=1000 # Get all active
     )
 
@@ -2188,8 +2185,8 @@ async def get_active_flights_remote_id(
 
     for fp in active_flight_plans:
         # 2. For each active flight, get its latest telemetry
-        latest_telemetry = crud_telemetry_log.telemetry_log.get_latest_log_for_drone(db, drone_id=fp.drone_id)
-        db_drone = crud_drone.drone.get(db, id=fp.drone_id) # Get drone for serial number
+        latest_telemetry = crud_telemetry_log.get_latest_log_for_drone(db, drone_id=fp.drone_id)
+        db_drone = crud_drone.get(db, id=fp.drone_id) # Get drone for serial number
 
         if latest_telemetry and db_drone:
             operator_id = None
@@ -2627,10 +2624,10 @@ class CRUDFlightPlan(CRUDBase[FlightPlan, FlightPlanCreate, FlightPlanUpdate]):
             query = query.filter(FlightPlan.deleted_at.is_(None))
         return query.first()
 
-    def get_multi_for_user(
+    def get_multi_for_user_with_drone(
         self, db: Session, *, user_id: int, skip: int = 0, limit: int = 100, status: Optional[FlightPlanStatus] = None, include_deleted: bool = False
     ) -> List[FlightPlan]:
-        query = db.query(FlightPlan).filter(FlightPlan.user_id == user_id)
+        query = db.query(FlightPlan).options(selectinload(FlightPlan.drone)).filter(FlightPlan.user_id == user_id)
         if not include_deleted:
             query = query.filter(FlightPlan.deleted_at.is_(None))
         if status:
@@ -3728,7 +3725,7 @@ class FlightPlanRead(FlightPlanBase):
     approved_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
-    # drone: Optional[DroneRead] = None # Can be added for richer response
+    drone: Optional[DroneRead] = None  # Uncomment this line
     # submitter_user: Optional[UserRead] = None # Can be added
 
     class Config:
@@ -4100,7 +4097,7 @@ class FlightService:
         submitter: User
     ) -> FlightPlan:
         # 1. Validate Drone
-        db_drone = crud_drone.drone.get(db, id=flight_plan_in.drone_id)
+        db_drone = crud_drone.get(db, id=flight_plan_in.drone_id)
         if not db_drone:
             raise ValueError("Drone not found.")
         
@@ -4142,7 +4139,7 @@ class FlightService:
             raise ValueError("Cannot determine initial flight plan status for user role.")
 
         # 4. Create Flight Plan
-        created_flight_plan = crud_flight_plan.flight_plan.create_with_waypoints(
+        created_flight_plan = crud_flight_plan.create_with_waypoints(
             db, 
             obj_in=flight_plan_in, 
             user_id=submitter.id,
@@ -4160,7 +4157,7 @@ class FlightService:
         actor: User, # User performing the action
         rejection_reason: str | None = None,
     ) -> FlightPlan:
-        db_flight_plan = crud_flight_plan.flight_plan.get(db, id=flight_plan_id)
+        db_flight_plan = crud_flight_plan.get(db, id=flight_plan_id)
         if not db_flight_plan:
             raise ValueError("Flight plan not found.")
 
@@ -4204,7 +4201,7 @@ class FlightService:
         else:
             raise ValueError("User role not authorized to update flight plan status.")
 
-        return crud_flight_plan.flight_plan.update_status(
+        return crud_flight_plan.update_status(
             db, 
             db_obj=db_flight_plan, 
             new_status=new_status, 
@@ -4214,7 +4211,7 @@ class FlightService:
         )
 
     def start_flight(self, db: Session, *, flight_plan_id: int, pilot: User) -> FlightPlan:
-        db_flight_plan = crud_flight_plan.flight_plan.get(db, id=flight_plan_id)
+        db_flight_plan = crud_flight_plan.get(db, id=flight_plan_id)
         if not db_flight_plan:
             raise ValueError("Flight plan not found.")
         if db_flight_plan.user_id != pilot.id:
@@ -4222,7 +4219,7 @@ class FlightService:
         if db_flight_plan.status != FlightPlanStatus.APPROVED:
             raise ValueError(f"Flight plan must be APPROVED to start. Current status: {db_flight_plan.status}")
 
-        started_flight = crud_flight_plan.flight_plan.start_flight(db, db_obj=db_flight_plan)
+        started_flight = crud_flight_plan.start_flight(db, db_obj=db_flight_plan)
         
         # Start telemetry simulation for this flight
         telemetry_service.start_flight_simulation(db, flight_plan=started_flight)
@@ -4237,7 +4234,7 @@ class FlightService:
         actor: User, 
         reason: str | None = None
     ) -> FlightPlan:
-        db_flight_plan = crud_flight_plan.flight_plan.get(db, id=flight_plan_id)
+        db_flight_plan = crud_flight_plan.get(db, id=flight_plan_id)
         if not db_flight_plan:
             raise ValueError("Flight plan not found.")
 
@@ -4267,12 +4264,12 @@ class FlightService:
         if db_flight_plan.status == FlightPlanStatus.ACTIVE:
             telemetry_service.stop_flight_simulation(flight_plan_id)
             # Also update drone status if it was active
-            db_drone = crud_drone.drone.get(db, id=db_flight_plan.drone_id)
+            db_drone = crud_drone.get(db, id=db_flight_plan.drone_id)
             if db_drone and db_drone.current_status == DroneStatus.ACTIVE:
-                crud_drone.drone.update(db, db_obj=db_drone, obj_in={"current_status": DroneStatus.IDLE})
+                crud_drone.update(db, db_obj=db_drone, obj_in={"current_status": DroneStatus.IDLE})
 
 
-        return crud_flight_plan.flight_plan.cancel_flight(db, db_obj=db_flight_plan, cancelled_by_role=cancelled_by_role_type, reason=reason)
+        return crud_flight_plan.cancel_flight(db, db_obj=db_flight_plan, cancelled_by_role=cancelled_by_role_type, reason=reason)
 
 flight_service = FlightService() # Singleton instance
 ```
@@ -4296,7 +4293,7 @@ class NFZService:
         # In a real system, you'd check waypoint coordinates against NFZ geometries
         
         # Get all active NFZs
-        active_nfzs = crud_restricted_zone.restricted_zone.get_all_active_zones(db)
+        active_nfzs = crud_restricted_zone.get_all_active_zones(db)
         
         violations = []
         
@@ -4315,7 +4312,7 @@ class NFZService:
         Check if a single point intersects with No-Fly Zones.
         Returns list of NFZ details that are breached.
         """
-        active_nfzs = crud_restricted_zone.restricted_zone.get_all_active_zones(db)
+        active_nfzs = crud_restricted_zone.get_all_active_zones(db)
         
         breaches = []
         for nfz in active_nfzs:
@@ -4427,13 +4424,13 @@ class TelemetryService:
         # This is important because the original request's session will be closed.
         db: Session = SessionLocal()
         try:
-            fp = crud_flight_plan.flight_plan.get_flight_plan_with_details(db, id=flight_plan_id)
+            fp = crud_flight_plan.get_flight_plan_with_details(db, id=flight_plan_id)
             if not fp or not fp.waypoints:
                 print(f"Flight plan {flight_plan_id} not found or no waypoints for simulation.")
                 return
 
             # Update drone status to ACTIVE
-            db_drone = crud_drone.drone.get(db, id=fp.drone_id)
+            db_drone = crud_drone.get(db, id=fp.drone_id)
             if db_drone:
                 db_drone.current_status = DroneStatus.ACTIVE
                 db.add(db_drone)
@@ -4483,7 +4480,7 @@ class TelemetryService:
                     heading_degrees=heading_degrees,
                     status_message=status_message,
                 )
-                db_log_entry = crud_telemetry_log.telemetry_log.create(db, obj_in=log_entry)
+                db_log_entry = crud_telemetry_log.create(db, obj_in=log_entry)
 
                 # Update drone's last seen and last telemetry
                 if db_drone:
@@ -4526,7 +4523,7 @@ class TelemetryService:
             # Re-fetch flight plan to get its current status from DB
             db.refresh(fp) # Refresh fp object
             if not stop_event.is_set() and fp.status == FlightPlanStatus.ACTIVE:
-                crud_flight_plan.flight_plan.complete_flight(db, db_obj=fp)
+                crud_flight_plan.complete_flight(db, db_obj=fp)
                 final_status_message = "FLIGHT_COMPLETED"
             
             # Update drone status to IDLE
