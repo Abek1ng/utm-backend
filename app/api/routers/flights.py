@@ -41,13 +41,13 @@ def list_my_flight_plans(
     db: Session = Depends(deps.get_db),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=200),
-    status_filter: Optional[FlightPlanStatus] = Query(None, alias="status"), # Use alias for query param
+    status_filter: Optional[FlightPlanStatus] = Query(None, alias="status"),
     current_user: models.User = Depends(deps.get_current_pilot),
 ) -> Any:
     """
     List flight plans submitted by the currently authenticated user (Pilot).
     """
-    flight_plans = crud.flight_plan.get_multi_for_user(
+    flight_plans = crud.flight_plan.get_multi_for_user_with_drone(
         db, user_id=current_user.id, skip=skip, limit=limit, status=status_filter
     )
     return flight_plans

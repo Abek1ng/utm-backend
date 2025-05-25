@@ -40,7 +40,7 @@ class FlightPlanRead(FlightPlanBase):
     approved_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
-    # drone: Optional[DroneRead] = None # Can be added for richer response
+    drone: Optional[DroneRead] = None  # Uncomment this line
     # submitter_user: Optional[UserRead] = None # Can be added
 
     class Config:
